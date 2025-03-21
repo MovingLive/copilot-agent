@@ -1,0 +1,76 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      TESTING: "true"
+      AWS_REGION: canada-central-1
+      COPILOT_API_URL: https://api.githubcopilot.com/chat/completions
+      COPILOT_TOKEN: <your_github_token>
+      ENV: local
+      FAISS_INDEX_FILE: index.faiss
+      FAISS_METADATA_FILE: id_mapping.json
+      REPO_DIR: <your_local_repo_dir>
+      REPO_URL: <your_repo_url>
+      S3_BUCKET_NAME: <your_s3_bucket>
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+
+      - name: Install Poetry
+        run: |
+          pip install --upgrade pip
+          pip install poetry
+
+      - name: Install dependencies with Poetry
+        run: |
+          poetry install
+
+      - name: Configure Poetry
+        run: |
+          poetry config virtualenvs.create false
+          poetry config virtualenvs.in-project false
+
+      - name: Run Python Linters
+        run: |
+          poetry run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Run Tests with Coverage
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          poetry run coverage run -m pytest --junitxml=test-results.xml
+          poetry run coverage xml
+          poetry run coverage report
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: test-results.xml
+      - name: Upload Coverage Report to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: htmlcov/
