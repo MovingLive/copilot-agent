@@ -18,7 +18,6 @@ Dépendances :
 import logging
 import os
 import sys
-from pathlib import Path
 
 import chromadb
 from chromadb.config import Settings
