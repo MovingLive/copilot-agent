@@ -29,7 +29,7 @@ S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
 FAISS_METADATA_FILE = os.getenv("FAISS_METADATA_FILE", "metadata.json")
 FAISS_INDEX_FILE = os.getenv("FAISS_INDEX_FILE", "index.faiss")
 
-AWS_REGION = os.getenv("AWS_REGION", "canada-central-1")
+AWS_REGION = os.getenv("AWS_REGION", "ca-central-1")
 COPILOT_API_URL = os.getenv(
     "COPILOT_API_URL", "https://api.githubcopilot.com/chat/completions"
 )

@@ -3,9 +3,9 @@ Tests unitaires pour le module export_utils.
 """
 
 import os
-import shutil
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+from datetime import datetime, timezone
 
 import boto3
 import pytest
@@ -54,12 +54,17 @@ def temp_dest_dir():
 def mock_s3_bucket():
     """Configure un mock de bucket S3 pour les tests."""
     with mock_aws():
-        s3 = boto3.client("s3", region_name="ca-central-1")
-        s3.create_bucket(
+        conn = boto3.client(
+            "s3",
+            region_name="ca-central-1",
+            aws_access_key_id="testing",
+            aws_secret_access_key="testing",
+        )
+        conn.create_bucket(
             Bucket="test-bucket",
             CreateBucketConfiguration={"LocationConstraint": "ca-central-1"},
         )
-        yield s3
+        yield conn
 
 
 @pytest.fixture(autouse=True)

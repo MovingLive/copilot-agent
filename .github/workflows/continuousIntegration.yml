@@ -19,15 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TESTING: "true"
-      AWS_REGION: canada-central-1
+      AWS_REGION: ca-central-1
       COPILOT_API_URL: https://api.githubcopilot.com/chat/completions
-      COPILOT_TOKEN: <your_github_token>
+      COPILOT_TOKEN: your_github_token
       ENV: local
       FAISS_INDEX_FILE: index.faiss
       FAISS_METADATA_FILE: id_mapping.json
-      REPO_DIR: <your_local_repo_dir>
-      REPO_URL: <your_repo_url>
-      S3_BUCKET_NAME: <your_s3_bucket>
+      REPO_DIR: fake_repo
+      REPO_URL: fake_repo
+      S3_BUCKET_NAME: fake_bucket
 
     steps:
       - name: Checkout code

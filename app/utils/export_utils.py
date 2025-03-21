@@ -15,7 +15,7 @@ load_dotenv()
 
 # --- Configuration ---
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
-AWS_REGION = os.getenv("AWS_REGION", "canada-central-1")
+AWS_REGION = os.getenv("AWS_REGION", "ca-central-1")
 
 # Répertoire de sortie local (utilisé si ENV = "local")
 LOCAL_OUTPUT_DIR = os.path.join(
@@ -92,7 +92,13 @@ def upload_directory_to_s3(
     if bucket_name is None:
         bucket_name = S3_BUCKET_NAME
 
-    s3_client = boto3.client("s3", region_name=AWS_REGION)
+    s3_client = boto3.client(
+        "s3",
+        region_name=AWS_REGION,
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "testing"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "testing"),
+    )
+
     for root, _, files in os.walk(directory):
         for file in files:
             full_path = os.path.join(root, file)
