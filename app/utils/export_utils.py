@@ -14,7 +14,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Configuration ---
-ENV = os.getenv("ENV", "local")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
 AWS_REGION = os.getenv("AWS_REGION", "canada-central-1")
 
@@ -35,7 +34,7 @@ def is_local_environment() -> bool:
     Returns:
         bool: True si l'environnement est local, False sinon
     """
-    return ENV.lower() == "local"
+    return os.getenv("ENV", "local").strip().lower() == "local"
 
 
 def copy_to_local_output(source_dir: str, destination_dir: str = None) -> None:

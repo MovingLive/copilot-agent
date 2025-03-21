@@ -36,9 +36,10 @@ Workspace
 
 ## Tech Stack
 
+- poetry
 - Fast API
 - Pydantic V2
-- pyunit
+- Pyunit
 - GitHub Action
 
 ## Naming Conventions
