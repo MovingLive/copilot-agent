@@ -3,6 +3,7 @@ Tests unitaires pour le script update_chroma.py
 """
 
 import os
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -92,12 +93,14 @@ def test_main_workflow(
         patch(
             "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
         ) as mock_ef,
+        patch("subprocess.run") as mock_subprocess_run,
     ):
         # Configuration des mocks
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = mock_documents
         mock_process.return_value = mock_processed_docs
         mock_client_class.return_value = mock_chromadb_client
+        mock_subprocess_run.return_value = MagicMock(returncode=0)
 
         # Exécution de la fonction principale
         main()
@@ -323,3 +326,19 @@ def test_missing_environment_variables(env_vars, mock_chromadb_client):
 
         # La fonction devrait utiliser les valeurs par défaut
         main()  # Ne devrait pas lever d'exception
+
+
+def test_git_clone_error(mock_env_vars):
+    """
+    Teste la gestion d'erreur lors du clonage git.
+    """
+    with (
+        patch("subprocess.run") as mock_subprocess_run,
+        pytest.raises(SystemExit) as pytest_wrapped_e,
+    ):
+        # Simuler une erreur de clonage git
+        mock_subprocess_run.side_effect = subprocess.CalledProcessError(1, "git clone")
+
+        main()
+
+        assert pytest_wrapped_e.value.code == 1
