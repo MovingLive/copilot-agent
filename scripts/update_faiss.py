@@ -232,7 +232,7 @@ def create_faiss_index(
     index = faiss.IndexFlatL2(dimension)
     # Envelopper avec un IndexIDMap pour associer nos identifiants numériques
     index_id_map = faiss.IndexIDMap(index)
-    index_id_map.add_with_ids(x=embeddings, xids=np.array(numeric_ids, dtype=np.int64))
+    index_id_map.add_with_ids(embeddings, np.array(numeric_ids, dtype=np.int64))
     logging.info("Index FAISS créé et rempli.")
 
     return index_id_map, metadata_mapping
