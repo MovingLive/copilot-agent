@@ -54,7 +54,9 @@ jobs:
 
       - name: Run Python Linters
         run: |
-          poetry run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          poetry add --group dev ruff
+          poetry run ruff check --output-format=github .
+          poetry run ruff format --check .
 
       - name: Run Tests with Coverage
         env:
