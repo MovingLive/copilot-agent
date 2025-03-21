@@ -25,8 +25,9 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
     Returns:
         str: Chemin du répertoire contenant le dépôt cloné
     """
-    # Vérifier si nous sommes en environnement de test
+    # Vérifier si nous sommes en environnement de test et le type de test
     is_testing = os.getenv("TESTING", "false").lower() == "true"
+    skip_git_calls = os.getenv("SKIP_GIT_CALLS", "false").lower() == "true"
 
     # Utiliser le répertoire défini par la variable d'environnement ou créer un répertoire temporaire
     repo_dir_path = None
@@ -73,9 +74,11 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
         if not os.path.exists(repo_dir_path):
             os.makedirs(repo_dir_path, exist_ok=True)
 
-    # Ne pas exécuter les commandes git en mode test
-    if is_testing:
-        logging.info("Mode test détecté: simulation du clonage du dépôt")
+    # Ne pas exécuter les commandes git en mode test si SKIP_GIT_CALLS est activé
+    if is_testing and skip_git_calls:
+        logging.info(
+            "Mode test avec simulation du clonage détecté: simulation du dépôt"
+        )
         # Créer un fichier markdown factice pour les tests
         test_file = os.path.join(repo_dir_path, "test_document.md")
         with open(test_file, "w") as f:

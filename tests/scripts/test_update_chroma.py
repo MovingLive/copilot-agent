@@ -334,11 +334,15 @@ def test_git_clone_error(mock_env_vars):
     """
     with (
         patch("subprocess.run") as mock_subprocess_run,
+        patch.dict(os.environ, {"SKIP_GIT_CALLS": "false"}),
         pytest.raises(SystemExit) as pytest_wrapped_e,
     ):
         # Simuler une erreur de clonage git
         mock_subprocess_run.side_effect = subprocess.CalledProcessError(1, "git clone")
 
-        main()
-
-        assert pytest_wrapped_e.value.code == 1
+        try:
+            main()
+        except SystemExit as e:
+            # Capturer explicitement l'exception pour éviter qu'elle ne sorte du contexte pytest.raises
+            assert e.code == 1
+            raise

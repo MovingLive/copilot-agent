@@ -51,8 +51,20 @@ def sample_markdown_files(tmp_path) -> str:
     return str(tmp_path)
 
 
+@pytest.fixture
+def disable_skip_git_calls():
+    """Désactiver temporairement la variable SKIP_GIT_CALLS pour les tests qui vérifient les appels git."""
+    old_value = os.environ.get("SKIP_GIT_CALLS")
+    os.environ["SKIP_GIT_CALLS"] = "false"
+    yield
+    if old_value is not None:
+        os.environ["SKIP_GIT_CALLS"] = old_value
+    else:
+        del os.environ["SKIP_GIT_CALLS"]
+
+
 # Tests pour clone_or_update_repo
-def test_clone_repo_new_directory(sample_repo_url: str, sample_repo_dir: str) -> None:
+def test_clone_repo_new_directory(sample_repo_url: str, sample_repo_dir: str, disable_skip_git_calls) -> None:
     with patch("subprocess.run") as mock_run:
         result = clone_or_update_repo(sample_repo_url, sample_repo_dir)
         assert os.path.exists(result)
@@ -61,7 +73,7 @@ def test_clone_repo_new_directory(sample_repo_url: str, sample_repo_dir: str) ->
         )
 
 
-def test_update_existing_repo(sample_repo_url: str, sample_repo_dir: str) -> None:
+def test_update_existing_repo(sample_repo_url: str, sample_repo_dir: str, disable_skip_git_calls) -> None:
     # Simuler un repo existant
     os.makedirs(os.path.join(sample_repo_dir, ".git"))
 
