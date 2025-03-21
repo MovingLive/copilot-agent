@@ -40,7 +40,5 @@
         "PYTHONDONTWRITEBYTECODE": "1"
     },
     "terminal.integrated.minimumContrastRatio": 1,
-    "workbench.editor.enablePreview": false,
-    "workbench.editor.limit.enabled": true,
-    "workbench.editor.limit.value": 6
+    "workbench.editor.enablePreview": false
 }
