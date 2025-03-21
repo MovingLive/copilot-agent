@@ -7,7 +7,7 @@ Ce script réalise les opérations suivantes :
 2. Lire et segmenter les fichiers Markdown en morceaux de taille raisonnable.
 3. Générer des embeddings pour chaque segment à l'aide du modèle "all-MiniLM-L6-v2" de SentenceTransformers.
 4. Indexer ces embeddings dans un index FAISS et sauvegarder l'index ainsi qu'un mapping des IDs aux métadonnées.
-5. Synchroniser le dossier contenant l'index FAISS vers un bucket AWS S3.
+5. Synchroniser le dossier contenant l'index FAISS vers un bucket AWS S3 ou un répertoire local.
 
 Dépendances :
     - git (disponible en ligne de commande)
@@ -23,11 +23,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-import boto3
 import faiss
 import numpy as np
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
+
+from app.utils import export_data
+
+# Ajouter le répertoire parent au chemin pour pouvoir importer les modules de app
+sys.path.append(
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
+
 
 # --- Chargement des variables d'environnement ---
 load_dotenv()
@@ -35,10 +42,13 @@ load_dotenv()
 
 # --- Configuration ---
 
+# Environnement (local, dev, prod)
+ENV = os.getenv("ENV", "local")
+
 # URL du dépôt GitHub contenant la documentation
 REPO_URL = os.getenv(
     "REPO_URL", "https://github.com/votre_utilisateur/votre_repo.git"
-)  # Remplacer par l'URL de votre repo
+)
 # Dossier local dans lequel le repo sera cloné/actualisé
 REPO_DIR = os.getenv("REPO_DIR", "documentation_repo")
 # Dossier de persistance de l'index FAISS
@@ -51,6 +61,11 @@ ID_MAPPING_FILE = "id_mapping.json"
 # Paramètres pour la synchronisation S3
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
 S3_BUCKET_PREFIX = "faiss_index"  # Dossier cible dans le bucket
+
+# Répertoire de sortie local (utilisé si ENV = "local")
+LOCAL_OUTPUT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output"
+)
 
 # Paramètre de segmentation des fichiers Markdown
 SEGMENT_MAX_LENGTH = 500  # Nombre maximal de caractères par segment
@@ -168,7 +183,7 @@ def create_faiss_index(
     index = faiss.IndexFlatL2(dimension)
     # Envelopper avec un IndexIDMap pour associer nos identifiants numériques
     index_id_map = faiss.IndexIDMap(index)
-    index_id_map.add_with_ids(embeddings, np.array(numeric_ids, dtype=np.int64))
+    index_id_map.add_with_ids(x=embeddings, xids=np.array(numeric_ids, dtype=np.int64))
     logging.info("Index FAISS créé et rempli.")
 
     return index_id_map, metadata_mapping
@@ -191,27 +206,10 @@ def save_faiss_index(
     logging.info("Index FAISS et mapping sauvegardés localement.")
 
 
-def upload_directory_to_s3(directory: str, bucket_name: str, prefix: str) -> None:
-    """
-    Upload l'intégralité des fichiers du répertoire 'directory' vers le bucket S3 sous le préfixe 'prefix'.
-    """
-    s3 = boto3.client("s3")
-    for root, _, files in os.walk(directory):
-        for file in files:
-            full_path = os.path.join(root, file)
-            relative_path = os.path.relpath(full_path, directory)
-            s3_key = os.path.join(prefix, relative_path).replace("\\", "/")
-            logging.info(
-                "Téléversement de %s vers s3://%s/%s...", full_path, bucket_name, s3_key
-            )
-            try:
-                s3.upload_file(full_path, bucket_name, s3_key)
-            except Exception as e:
-                logging.error("Erreur lors du téléversement de %s: %s", full_path, e)
-
-
 def main() -> None:
     """Main function to orchestrate the FAISS index creation and upload process."""
+
+    logging.info("Démarrage du script de mise à jour de l'index FAISS...")
 
     # Étape 1 : Cloner ou mettre à jour le dépôt GitHub
     clone_or_update_repo()
@@ -230,10 +228,10 @@ def main() -> None:
     # Étape 5 : Sauvegarder l'index FAISS et le mapping localement
     save_faiss_index(index, metadata_mapping, FAISS_PERSIST_DIR)
 
-    # Étape 6 : Synchroniser le dossier FAISS avec le bucket S3
-    logging.info("Début de la synchronisation du dossier FAISS vers S3...")
-    upload_directory_to_s3(FAISS_PERSIST_DIR, S3_BUCKET_NAME, S3_BUCKET_PREFIX)
-    logging.info("Synchronisation terminée.")
+    # Étape 6 : Exporter les données (local ou S3)
+    logging.info("Exportation des données...")
+    export_data(FAISS_PERSIST_DIR, S3_BUCKET_PREFIX)
+    logging.info("Exportation terminée.")
 
 
 if __name__ == "__main__":

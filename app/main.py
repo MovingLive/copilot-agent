@@ -1,22 +1,26 @@
 import json
 import logging
 import os
+import shutil
 import threading
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
+
 import boto3
 import faiss
 import numpy as np
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # --- Chargement des variables d'environnement ---
 load_dotenv()
 
 # --- Configuration ---
+ENV = os.getenv("ENV", "local")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
 FAISS_KEY = os.getenv("FAISS_KEY", "index.faiss")
 AWS_REGION = os.getenv("AWS_REGION", "canada-central-1")
@@ -24,6 +28,11 @@ COPILOT_API_URL = os.getenv(
     "COPILOT_API_URL", "https://api.githubcopilot.com/chat/completions"
 )
 COPILOT_TOKEN = os.getenv("COPILOT_TOKEN", "")
+
+# Répertoire de sortie local (utilisé si ENV = "local")
+LOCAL_OUTPUT_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output"
+)
 
 # --- Variables globales ---
 FAISS_INDEX = None
@@ -36,9 +45,105 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("copilot_api")
 
 
+# --- Fonctions utilitaires pour l'exportation ---
+def is_local_environment() -> bool:
+    """
+    Vérifie si l'environnement courant est local.
+
+    Returns:
+        bool: True si l'environnement est local, False sinon
+    """
+    return ENV.lower() == "local"
+
+
+def copy_to_local_output(source_dir: str, destination_dir: str) -> None:
+    """
+    Copie les fichiers du répertoire source vers le répertoire de sortie local.
+
+    Args:
+        source_dir (str): Répertoire source
+        destination_dir (str): Répertoire de destination
+    """
+    if not os.path.exists(destination_dir):
+        os.makedirs(destination_dir)
+
+    # Vider d'abord le répertoire de destination
+    for item in os.listdir(destination_dir):
+        item_path = os.path.join(destination_dir, item)
+        if os.path.isfile(item_path):
+            os.remove(item_path)
+        elif os.path.isdir(item_path):
+            shutil.rmtree(item_path)
+
+    # Copier les fichiers
+    for root, _, files in os.walk(source_dir):
+        relative_path = os.path.relpath(root, source_dir)
+        destination_path = os.path.join(destination_dir, relative_path)
+
+        if not os.path.exists(destination_path) and relative_path != ".":
+            os.makedirs(destination_path)
+
+        for file in files:
+            source_file_path = os.path.join(root, file)
+            dest_file_path = os.path.join(destination_path, file)
+            logger.info("Copie de %s vers %s...", source_file_path, dest_file_path)
+            try:
+                shutil.copy2(source_file_path, dest_file_path)
+            except Exception as e:
+                logger.error("Erreur lors de la copie de %s: %s", source_file_path, e)
+
+
+def upload_directory_to_s3(directory: str, bucket_name: str, prefix: str) -> None:
+    """
+    Upload l'intégralité des fichiers du répertoire 'directory' vers le bucket S3 sous le préfixe 'prefix'.
+
+    Args:
+        directory (str): Répertoire à uploader
+        bucket_name (str): Nom du bucket S3
+        prefix (str): Préfixe pour les fichiers dans le bucket
+    """
+    s3_client = boto3.client("s3", region_name=AWS_REGION)
+    for root, _, files in os.walk(directory):
+        for file in files:
+            full_path = os.path.join(root, file)
+            relative_path = os.path.relpath(full_path, directory)
+            s3_key = os.path.join(prefix, relative_path).replace("\\", "/")
+            logger.info(
+                "Téléversement de %s vers s3://%s/%s...", full_path, bucket_name, s3_key
+            )
+            try:
+                s3_client.upload_file(full_path, bucket_name, s3_key)
+            except Exception as e:
+                logger.error("Erreur lors du téléversement de %s: %s", full_path, e)
+
+
+def export_data(source_dir: str, s3_prefix: str) -> None:
+    """
+    Exporte les données soit vers un répertoire local soit vers S3 selon l'environnement.
+
+    Args:
+        source_dir (str): Répertoire source contenant les données à exporter
+        s3_prefix (str): Préfixe à utiliser dans le bucket S3 si exportation vers S3
+    """
+    if is_local_environment():
+        logger.info(
+            "Environnement local détecté. Copie vers le répertoire local %s...",
+            LOCAL_OUTPUT_DIR,
+        )
+        copy_to_local_output(source_dir, LOCAL_OUTPUT_DIR)
+        logger.info("Copie terminée.")
+    else:
+        logger.info("Début de la synchronisation du dossier vers S3...")
+        upload_directory_to_s3(source_dir, S3_BUCKET_NAME, s3_prefix)
+        logger.info("Synchronisation terminée.")
+
+
 # --- Événement de démarrage ---
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    """
+    Gère le cycle de vie de l'application FastAPI.
+    """
     logger.info("Démarrage de l'application et chargement de l'index FAISS...")
     load_faiss_index()
     # Lancer la mise à jour périodique de l'index dans un thread de fond
@@ -50,8 +155,7 @@ async def lifespan(_: FastAPI):
 
 
 # --- Instance FastAPI ---
-# app = FastAPI(lifespan=lifespan)
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 
 
 # --- Modèles Pydantic ---
@@ -59,42 +163,73 @@ class QueryRequest(BaseModel):
     question: str
     context: Optional[str] = None
 
+    model_config = ConfigDict(from_attributes=True)
+
 
 class QueryResponse(BaseModel):
     answer: str
 
+    model_config = ConfigDict(from_attributes=True)
+
 
 # --- Fonctions utilitaires ---
-
-
 def load_faiss_index() -> None:
     """
-    Télécharge et charge l'index FAISS depuis AWS S3.
+    Télécharge et charge l'index FAISS depuis AWS S3 ou le répertoire local.
     Optionnellement, charge aussi un mapping vers les documents.
     """
     global FAISS_INDEX, document_store
     try:
-        s3_client = boto3.client("s3", region_name=AWS_REGION)
-        # Télécharger l'index depuis S3 vers un chemin temporaire
-        local_faiss_path = f"/tmp/{FAISS_KEY}"
-        s3_client.download_file(S3_BUCKET_NAME, FAISS_KEY, local_faiss_path)
-        logger.info("Index FAISS téléchargé depuis S3.")
+        if is_local_environment():
+            # Charger depuis le répertoire local
+            local_faiss_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_KEY)
+            if os.path.exists(local_faiss_path):
+                logger.info(
+                    "Chargement de l'index FAISS depuis le répertoire local: %s",
+                    local_faiss_path,
+                )
+            else:
+                logger.warning(
+                    "Index FAISS introuvable dans le répertoire local, création d'un index vide."
+                )
+                local_faiss_path = f"/tmp/{FAISS_KEY}"
+                # Créer un index vide si aucun n'existe
+                empty_index = faiss.IndexFlatL2(128)  # Dimension 128 par défaut
+                faiss.write_index(empty_index, local_faiss_path)
+        else:
+            # Télécharger l'index depuis S3 vers un chemin temporaire
+            local_faiss_path = f"/tmp/{FAISS_KEY}"
+            s3_client = boto3.client("s3", region_name=AWS_REGION)
+            s3_client.download_file(S3_BUCKET_NAME, FAISS_KEY, local_faiss_path)
+            logger.info("Index FAISS téléchargé depuis S3.")
 
         # Charger l'index FAISS
         FAISS_INDEX = faiss.read_index(local_faiss_path)
         logger.info("Index FAISS chargé en mémoire.")
 
         # Optionnel : charger un mapping document associé à l'index.
-        # On suppose qu'un fichier JSON (ex: index.faiss.json) existe dans le bucket.
+        # On suppose qu'un fichier JSON (ex: index.faiss.json) existe dans le bucket ou localement.
         local_mapping_path = local_faiss_path + ".json"
+
         try:
-            s3_client.download_file(S3_BUCKET_NAME, FAISS_KEY + ".json", local_mapping_path)
+            if is_local_environment():
+                mapping_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_KEY + ".json")
+                if os.path.exists(mapping_path):
+                    local_mapping_path = mapping_path
+                else:
+                    raise FileNotFoundError("Mapping file not found in local directory")
+            else:
+                s3_client = boto3.client("s3", region_name=AWS_REGION)
+                s3_client.download_file(
+                    S3_BUCKET_NAME, FAISS_KEY + ".json", local_mapping_path
+                )
+
             with open(local_mapping_path, "r", encoding="utf-8") as f:
                 document_store = json.load(f)
             logger.info("Mapping des documents chargé.")
-        except Exception:
+        except Exception as e:
             logger.warning(
-                "Mapping des documents introuvable, utilisation d'une liste vide."
+                "Mapping des documents introuvable, utilisation d'une liste vide: %s", e
             )
             document_store = []
     except Exception as e:
@@ -175,7 +310,6 @@ def call_copilot_llm(question: str, context_text: str) -> str:
 
 
 # --- Endpoint FastAPI ---
-
 @app.get("/", response_model=dict)
 async def root() -> dict:
     """
@@ -183,6 +317,7 @@ async def root() -> dict:
     Retourne un message de bienvenue.
     """
     return {"message": "Bienvenue dans l'API Copilot LLM!"}
+
 
 @app.post("/query", response_model=QueryResponse)
 async def query_copilot(request: QueryRequest) -> QueryResponse:

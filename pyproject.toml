@@ -1,5 +1,5 @@
 [project]
-name = "copilot-agent"
+name = "app"
 version = "0.1.0"
 description = "GitHub Copilot Extension"
 authors = [

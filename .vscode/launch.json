@@ -17,17 +17,13 @@
             "name": "Update FAISS",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/script/update_faiss.py",
-            "justMyCode": true,
-            "console": "internalConsole"
+            "program": "${workspaceFolder}/scripts/update_faiss.py",
         },
         {
             "name": "Update Chroma",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/script/update_chroma.py",
-            "justMyCode": true,
-            "console": "internalConsole"
+            "program": "${workspaceFolder}/scripts/update_chroma.py",
         }
     ]
 }
