@@ -24,13 +24,13 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
     """
     configured_dir = os.path.abspath(repo_dir)
     repo_dir_path = configured_dir
-    
+
     try:
         # Tester si on peut écrire dans le répertoire parent
         parent_dir = os.path.dirname(configured_dir)
         if not os.path.exists(parent_dir):
             os.makedirs(parent_dir, exist_ok=True)
-        
+
         # Si le répertoire existe, on vérifie qu'on peut y écrire
         if os.path.exists(configured_dir):
             test_file = os.path.join(configured_dir, ".write_test")
@@ -41,8 +41,7 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
             except (IOError, OSError):
                 # Si on ne peut pas écrire, on utilise un répertoire temporaire
                 repo_dir_path = os.path.join(
-                    tempfile.gettempdir(),
-                    f"repo_clone_{os.getpid()}"
+                    tempfile.gettempdir(), f"repo_clone_{os.getpid()}"
                 )
                 os.makedirs(repo_dir_path, exist_ok=True)
         else:
@@ -52,18 +51,14 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
             except (IOError, OSError):
                 # Si on ne peut pas créer le répertoire, on utilise un temporaire
                 repo_dir_path = os.path.join(
-                    tempfile.gettempdir(),
-                    f"repo_clone_{os.getpid()}"
+                    tempfile.gettempdir(), f"repo_clone_{os.getpid()}"
                 )
                 os.makedirs(repo_dir_path, exist_ok=True)
 
     except Exception as e:
         logging.warning("Erreur lors de la vérification des permissions: %s", e)
         # Utiliser un répertoire temporaire comme fallback
-        repo_dir_path = os.path.join(
-            tempfile.gettempdir(),
-            f"repo_clone_{os.getpid()}"
-        )
+        repo_dir_path = os.path.join(tempfile.gettempdir(), f"repo_clone_{os.getpid()}")
         os.makedirs(repo_dir_path, exist_ok=True)
 
     # Cloner ou mettre à jour le dépôt
