@@ -25,6 +25,8 @@ exclude = [
   "node_modules",
   "site-packages",
   "venv",
+  "tests",
+  "tests/**",
 ]
 line-length = 88
 indent-width = 4

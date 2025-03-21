@@ -4,9 +4,7 @@ Tests unitaires pour le module repo_utils.
 
 import os
 import subprocess
-import sys
-import tempfile
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import mock_open, patch
 
 import pytest
 
