@@ -177,7 +177,7 @@ def call_copilot_llm(question: str, context_text: str) -> str:
 # --- Endpoint FastAPI ---
 
 @app.get("/", response_model=dict)
-async def root():
+async def root() -> dict:
     """
     Point d'entrée principal de l'API.
     Retourne un message de bienvenue.
