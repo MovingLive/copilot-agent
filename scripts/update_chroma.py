@@ -20,10 +20,14 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import chromadb
 from chromadb.config import Settings
+from chromadb.utils import (
+    embedding_functions,  # Ajout de l'import pour les fonctions d'embedding
+)
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
@@ -71,26 +75,76 @@ logging.basicConfig(
 
 
 # --- Fonctions utilitaires ---
-def clone_or_update_repo() -> None:
+def clone_or_update_repo() -> str:
     """
     Clone ou met à jour le dépôt GitHub contenant la documentation.
+    Utilise un répertoire temporaire si le répertoire cible n'est pas accessible en écriture.
+
+    Returns:
+        str: Chemin du répertoire contenant le dépôt cloné
     """
-    if not os.path.exists(REPO_DIR):
+    # Utiliser le répertoire défini par la variable d'environnement ou créer un répertoire temporaire
+    repo_dir = None
+
+    # D'abord, essayer le répertoire configuré
+    configured_dir = os.path.abspath(REPO_DIR)
+
+    try:
+        # Tester si on peut écrire dans le répertoire parent
+        parent_dir = os.path.dirname(configured_dir)
+        if not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+
+        # Si le répertoire existe déjà, vérifier qu'on peut y écrire
+        if os.path.exists(configured_dir):
+            test_file = os.path.join(configured_dir, ".write_test")
+            try:
+                with open(test_file, "w") as f:
+                    f.write("test")
+                os.remove(test_file)
+                repo_dir = configured_dir
+            except (IOError, OSError):
+                logging.warning(
+                    "Le répertoire %s n'est pas accessible en écriture", configured_dir
+                )
+        else:
+            # Essayer de créer le répertoire
+            try:
+                os.makedirs(configured_dir, exist_ok=True)
+                repo_dir = configured_dir
+            except (IOError, OSError) as e:
+                logging.warning(
+                    "Impossible de créer le répertoire %s: %s", configured_dir, e
+                )
+    except Exception as e:
+        logging.warning("Erreur lors de la vérification des permissions: %s", e)
+
+    # Si on n'a pas pu utiliser le répertoire configuré, utiliser un répertoire temporaire
+    if repo_dir is None:
+        repo_dir = os.path.join(tempfile.gettempdir(), "repo_clone_" + str(os.getpid()))
+        logging.info("Utilisation du répertoire temporaire: %s", repo_dir)
+        if not os.path.exists(repo_dir):
+            os.makedirs(repo_dir, exist_ok=True)
+
+    # Cloner ou mettre à jour le dépôt
+    if not os.path.exists(os.path.join(repo_dir, ".git")):
         logging.info(
-            "Clonage du repo depuis %s dans le dossier %s...", REPO_URL, REPO_DIR
+            "Clonage du repo depuis %s dans le dossier %s...", REPO_URL, repo_dir
         )
         try:
-            subprocess.run(["git", "clone", REPO_URL, REPO_DIR], check=True)
+            subprocess.run(["git", "clone", REPO_URL, repo_dir], check=True)
         except subprocess.CalledProcessError:
             logging.error("Erreur lors du clonage du repo.")
             sys.exit(1)
     else:
-        logging.info("Mise à jour du repo dans le dossier %s...", REPO_DIR)
+        logging.info("Mise à jour du repo dans le dossier %s...", repo_dir)
         try:
-            subprocess.run(["git", "-C", REPO_DIR, "pull"], check=True)
+            subprocess.run(["git", "-C", repo_dir, "pull"], check=True)
         except subprocess.CalledProcessError:
             logging.error("Erreur lors de la mise à jour du repo.")
             sys.exit(1)
+
+    return repo_dir
 
 
 def read_markdown_files() -> list[tuple[str, str]]:
@@ -172,13 +226,18 @@ def main() -> None:
         Settings(persist_directory=CHROMA_PERSIST_DIR, anonymized_telemetry=False)
     )
 
+    # Créer une fonction d'embedding compatible avec ChromaDB
+    sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="all-MiniLM-L6-v2"
+    )
+
     # Recréer la collection pour avoir des données fraîches
     try:
         client.delete_collection(COLLECTION_NAME)
     except ValueError:
         pass  # La collection n'existe pas encore, on continue
     collection = client.create_collection(
-        name=COLLECTION_NAME, embedding_function=SentenceTransformer("all-MiniLM-L6-v2")
+        name=COLLECTION_NAME, embedding_function=sentence_transformer_ef
     )
 
     # Étape 5 : Ajouter les documents à la collection ChromaDB
@@ -191,9 +250,8 @@ def main() -> None:
             ids=ids[i:end], documents=texts[i:end], metadatas=metadatas[i:end]
         )
 
-    # Étape 6 : Persistance de la base ChromaDB
-    logging.info("Persistance de la collection ChromaDB...")
-    client.persist()
+    # Étape 6 : La persistance est automatique avec ChromaDB quand persist_directory est spécifié
+    logging.info("Collection ChromaDB créée et persistée automatiquement...")
 
     # Étape 7 : Exporter les données (local ou S3)
     logging.info("Exportation des données...")
