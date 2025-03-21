@@ -31,12 +31,12 @@ from sentence_transformers import SentenceTransformer
 sys.path.append(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
-from app.doc_utils import (
+from app.utils import (
     clone_or_update_repo,
+    export_data,
     process_documents_for_faiss,
     read_markdown_files,
 )
-from app.utils import export_data
 
 # --- Chargement des variables d'environnement ---
 load_dotenv()
