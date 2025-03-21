@@ -88,15 +88,11 @@ def load_faiss_index() -> None:
     """
     global FAISS_INDEX, document_store
     try:
+        local_faiss_path = None
         if is_local_environment():
             # Charger depuis le répertoire local
             local_faiss_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_INDEX_FILE)
-            if os.path.exists(local_faiss_path):
-                logger.info(
-                    "Chargement de l'index FAISS depuis le répertoire local: %s",
-                    local_faiss_path,
-                )
-            else:
+            if not os.path.exists(local_faiss_path):
                 logger.warning(
                     "Index FAISS introuvable dans le répertoire local, création d'un index vide."
                 )
@@ -116,9 +112,8 @@ def load_faiss_index() -> None:
         logger.info("Index FAISS chargé en mémoire.")
 
         # Optionnel : charger un mapping document associé à l'index.
-        local_metadata_path = f"/tmp/{FAISS_METADATA_FILE}"
-
         try:
+            local_metadata_path = f"/tmp/{FAISS_METADATA_FILE}"
             if is_local_environment():
                 metadata_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_METADATA_FILE)
                 if os.path.exists(metadata_path):
@@ -143,6 +138,8 @@ def load_faiss_index() -> None:
             document_store = []
     except Exception as e:
         logger.error("Erreur lors du chargement de l'index FAISS : %s", e)
+        FAISS_INDEX = None
+        document_store = []
 
 
 def update_faiss_index_periodically():
