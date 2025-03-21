@@ -1,0 +1,30 @@
+[project]
+name = "copilot-agent"
+version = "0.1.0"
+description = "GitHub Copilot Extension"
+authors = [
+    {name = "Steve",email = "steve.magne@gmail.com"}
+]
+readme = "README.md"
+requires-python = "^3.12"
+dependencies = [
+    "boto3 (>=1.37.17,<2.0.0)",
+    "sentence-transformers (>=3.4.1,<4.0.0)",
+    "chromadb (>=0.6.3,<0.7.0)",
+    "fastapi (>=0.115.11,<0.116.0)",
+    "uvicorn (>=0.34.0,<0.35.0)",
+    "numpy (>=2.2.4,<3.0.0)",
+    "requests (>=2.32.3,<3.0.0)",
+    "pytest (>=8.3.5,<9.0.0)",
+    "python-dotenv (>=1.0.1,<2.0.0)",
+    "faiss-cpu (>=1.10.0,<2.0.0)",
+    "langchain (>=0.3.21,<0.4.0)",
+    "httpx (>=0.28.1,<0.29.0)",
+    "pytest-cov (>=6.0.0,<7.0.0)",
+    "pytest-asyncio (>=0.25.3,<0.26.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

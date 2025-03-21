@@ -1,0 +1,11 @@
+{
+    "recommendations": [
+        "charliermarsh.ruff",
+        "github.copilot",
+        "github.copilot-chat",
+        "ms-python.mypy-type-checker",
+        "ms-python.pylint",
+        "richie5um2.vscode-sort-json",
+        "tyriar.sort-lines"
+    ]
+}

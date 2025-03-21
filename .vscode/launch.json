@@ -1,0 +1,33 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FastAPI HTTPS",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "app.main:app",
+                "--reload",
+            ],
+            "justMyCode": true,
+            "console": "internalConsole"
+        },
+        {
+            "name": "Update FAISS",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/script/update_faiss.py",
+            "justMyCode": true,
+            "console": "internalConsole"
+        },
+        {
+            "name": "Update Chroma",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/script/update_chroma.py",
+            "justMyCode": true,
+            "console": "internalConsole"
+        }
+    ]
+}
