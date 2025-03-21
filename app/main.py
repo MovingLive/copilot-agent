@@ -5,7 +5,6 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from typing import List, Optional
-
 import boto3
 import faiss
 import numpy as np
@@ -18,7 +17,7 @@ from pydantic import BaseModel
 load_dotenv()
 
 # --- Configuration ---
-S3_BUCKET = os.getenv("S3_BUCKET", "mon-bucket-faiss")
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
 FAISS_KEY = os.getenv("FAISS_KEY", "index.faiss")
 AWS_REGION = os.getenv("AWS_REGION", "canada-central-1")
 COPILOT_API_URL = os.getenv(
@@ -78,7 +77,7 @@ def load_faiss_index() -> None:
         s3_client = boto3.client("s3", region_name=AWS_REGION)
         # Télécharger l'index depuis S3 vers un chemin temporaire
         local_faiss_path = f"/tmp/{FAISS_KEY}"
-        s3_client.download_file(S3_BUCKET, FAISS_KEY, local_faiss_path)
+        s3_client.download_file(S3_BUCKET_NAME, FAISS_KEY, local_faiss_path)
         logger.info("Index FAISS téléchargé depuis S3.")
 
         # Charger l'index FAISS
@@ -89,7 +88,7 @@ def load_faiss_index() -> None:
         # On suppose qu'un fichier JSON (ex: index.faiss.json) existe dans le bucket.
         local_mapping_path = local_faiss_path + ".json"
         try:
-            s3_client.download_file(S3_BUCKET, FAISS_KEY + ".json", local_mapping_path)
+            s3_client.download_file(S3_BUCKET_NAME, FAISS_KEY + ".json", local_mapping_path)
             with open(local_mapping_path, "r", encoding="utf-8") as f:
                 document_store = json.load(f)
             logger.info("Mapping des documents chargé.")

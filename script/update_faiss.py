@@ -12,28 +12,35 @@ Ce script réalise les opérations suivantes :
 Dépendances :
     - git (disponible en ligne de commande)
     - Python 3
-    - pip install sentence-transformers faiss-cpu boto3
+    - poetry add sentence-transformers faiss-cpu boto3
 """
 
-import os
-import sys
 import glob
 import json
 import logging
+import os
 import subprocess
+import sys
 from pathlib import Path
 
-import numpy as np
 import boto3
-from sentence_transformers import SentenceTransformer
 import faiss
+import numpy as np
+from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
+
+# --- Chargement des variables d'environnement ---
+load_dotenv()
+
 
 # --- Configuration ---
 
 # URL du dépôt GitHub contenant la documentation
-REPO_URL = "https://github.com/votre_utilisateur/votre_repo.git"  # Remplacer par l'URL de votre repo
+REPO_URL = os.getenv(
+    "REPO_URL", "https://github.com/votre_utilisateur/votre_repo.git"
+)  # Remplacer par l'URL de votre repo
 # Dossier local dans lequel le repo sera cloné/actualisé
-REPO_DIR = "documentation_repo"
+REPO_DIR = os.getenv("REPO_DIR", "documentation_repo")
 # Dossier de persistance de l'index FAISS
 FAISS_PERSIST_DIR = "faiss_index"
 # Nom du fichier d'index FAISS
@@ -42,31 +49,34 @@ FAISS_INDEX_FILE = "faiss.index"
 ID_MAPPING_FILE = "id_mapping.json"
 
 # Paramètres pour la synchronisation S3
-S3_BUCKET_NAME = "nom-de-votre-bucket-s3"  # Remplacer par le nom de votre bucket
+S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
 S3_BUCKET_PREFIX = "faiss_index"  # Dossier cible dans le bucket
 
 # Paramètre de segmentation des fichiers Markdown
 SEGMENT_MAX_LENGTH = 500  # Nombre maximal de caractères par segment
 
 # --- Configuration du logging ---
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 
 # --- Fonctions utilitaires ---
-
-def clone_or_update_repo():
+def clone_or_update_repo() -> None:
     """
     Clone ou met à jour le dépôt GitHub contenant la documentation.
     """
     if not os.path.exists(REPO_DIR):
-        logging.info(f"Clonage du repo depuis {REPO_URL} dans le dossier {REPO_DIR}...")
+        logging.info(
+            "Clonage du repo depuis %s dans le dossier %s...", REPO_URL, REPO_DIR
+        )
         try:
             subprocess.run(["git", "clone", REPO_URL, REPO_DIR], check=True)
         except subprocess.CalledProcessError:
             logging.error("Erreur lors du clonage du repo.")
             sys.exit(1)
     else:
-        logging.info(f"Mise à jour du repo dans le dossier {REPO_DIR}...")
+        logging.info("Mise à jour du repo dans le dossier %s...", REPO_DIR)
         try:
             subprocess.run(["git", "-C", REPO_DIR, "pull"], check=True)
         except subprocess.CalledProcessError:
@@ -74,7 +84,7 @@ def clone_or_update_repo():
             sys.exit(1)
 
 
-def read_markdown_files():
+def read_markdown_files() -> list[tuple[str, str]]:
     """
     Lit tous les fichiers Markdown du dépôt et retourne une liste de tuples (chemin, contenu).
     """
@@ -85,13 +95,13 @@ def read_markdown_files():
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
                 documents.append((file_path, content))
-        except Exception as e:
-            logging.warning(f"Impossible de lire le fichier {file_path}: {e}")
-    logging.info(f"Nombre de fichiers Markdown lus: {len(documents)}")
+        except (IOError, OSError) as e:
+            logging.warning("Impossible de lire le fichier %s: %s", file_path, e)
+    logging.info("Nombre de fichiers Markdown lus: %d", len(documents))
     return documents
 
 
-def segment_text(text, max_length=SEGMENT_MAX_LENGTH):
+def segment_text(text: str, max_length: int = SEGMENT_MAX_LENGTH) -> list[str]:
     """
     Segmente le texte en morceaux de longueur maximale max_length.
     Une segmentation simple basée sur les sauts de ligne et la longueur.
@@ -105,13 +115,13 @@ def segment_text(text, max_length=SEGMENT_MAX_LENGTH):
         # Si le paragraphe est trop long, le découper en morceaux
         if len(para) > max_length:
             for i in range(0, len(para), max_length):
-                segments.append(para[i:i+max_length])
+                segments.append(para[i : i + max_length])
         else:
             segments.append(para)
     return segments
 
 
-def process_documents(documents):
+def process_documents(documents: list[tuple[str, str]]) -> list[dict]:
     """
     Pour chaque document, segmente le contenu et retourne une liste de dictionnaires contenant
     le texte, un identifiant numérique et des métadonnées.
@@ -127,16 +137,18 @@ def process_documents(documents):
                 "metadata": {
                     "original_id": f"{Path(file_path).stem}_{idx}",
                     "file_path": file_path,
-                    "segment_index": idx
-                }
+                    "segment_index": idx,
+                },
             }
             processed.append(entry)
             current_id += 1
-    logging.info(f"Nombre total de segments générés: {len(processed)}")
+    logging.info("Nombre total de segments générés: %d", len(processed))
     return processed
 
 
-def create_faiss_index(processed_docs, embedding_model):
+def create_faiss_index(
+    processed_docs: list, embedding_model: SentenceTransformer
+) -> tuple[faiss.IndexIDMap, dict]:
     """
     Génère les embeddings pour chaque segment, crée un index FAISS et renvoie l'index ainsi que
     le mapping des IDs aux métadonnées.
@@ -150,7 +162,7 @@ def create_faiss_index(processed_docs, embedding_model):
     embeddings = embedding_model.encode(texts, show_progress_bar=True)
     embeddings = np.array(embeddings).astype("float32")
     dimension = embeddings.shape[1]
-    logging.info(f"Dimension des embeddings : {dimension}")
+    logging.info("Dimension des embeddings : %d", dimension)
 
     # Création de l'index FAISS
     index = faiss.IndexFlatL2(dimension)
@@ -162,7 +174,9 @@ def create_faiss_index(processed_docs, embedding_model):
     return index_id_map, metadata_mapping
 
 
-def save_faiss_index(index, metadata_mapping, directory):
+def save_faiss_index(
+    index: faiss.IndexIDMap, metadata_mapping: dict, directory: str
+) -> None:
     """
     Sauvegarde l'index FAISS et le mapping des IDs dans le répertoire spécifié.
     """
@@ -177,24 +191,28 @@ def save_faiss_index(index, metadata_mapping, directory):
     logging.info("Index FAISS et mapping sauvegardés localement.")
 
 
-def upload_directory_to_s3(directory, bucket_name, prefix):
+def upload_directory_to_s3(directory: str, bucket_name: str, prefix: str) -> None:
     """
     Upload l'intégralité des fichiers du répertoire 'directory' vers le bucket S3 sous le préfixe 'prefix'.
     """
-    s3 = boto3.client('s3')
+    s3 = boto3.client("s3")
     for root, _, files in os.walk(directory):
         for file in files:
             full_path = os.path.join(root, file)
             relative_path = os.path.relpath(full_path, directory)
             s3_key = os.path.join(prefix, relative_path).replace("\\", "/")
-            logging.info(f"Téléversement de {full_path} vers s3://{bucket_name}/{s3_key}...")
+            logging.info(
+                "Téléversement de %s vers s3://%s/%s...", full_path, bucket_name, s3_key
+            )
             try:
                 s3.upload_file(full_path, bucket_name, s3_key)
             except Exception as e:
-                logging.error(f"Erreur lors du téléversement de {full_path}: {e}")
+                logging.error("Erreur lors du téléversement de %s: %s", full_path, e)
 
 
-def main():
+def main() -> None:
+    """Main function to orchestrate the FAISS index creation and upload process."""
+
     # Étape 1 : Cloner ou mettre à jour le dépôt GitHub
     clone_or_update_repo()
 
