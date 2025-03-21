@@ -21,6 +21,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import faiss
@@ -46,13 +47,11 @@ load_dotenv()
 ENV = os.getenv("ENV", "local")
 
 # URL du dépôt GitHub contenant la documentation
-REPO_URL = os.getenv(
-    "REPO_URL", "https://github.com/votre_utilisateur/votre_repo.git"
-)
+REPO_URL = os.getenv("REPO_URL", "https://github.com/votre_utilisateur/votre_repo.git")
 # Dossier local dans lequel le repo sera cloné/actualisé
 REPO_DIR = os.getenv("REPO_DIR", "documentation_repo")
 # Dossier de persistance de l'index FAISS
-FAISS_PERSIST_DIR = "faiss_index"
+FAISS_PERSIST_DIR = os.path.join(tempfile.gettempdir(), "faiss_index")
 # Nom du fichier d'index FAISS
 FAISS_INDEX_FILE = "faiss.index"
 # Nom du fichier de mapping des IDs (pour retrouver les métadonnées)
@@ -77,26 +76,76 @@ logging.basicConfig(
 
 
 # --- Fonctions utilitaires ---
-def clone_or_update_repo() -> None:
+def clone_or_update_repo() -> str:
     """
     Clone ou met à jour le dépôt GitHub contenant la documentation.
+    Utilise un répertoire temporaire si le répertoire cible n'est pas accessible en écriture.
+
+    Returns:
+        str: Chemin du répertoire contenant le dépôt cloné
     """
-    if not os.path.exists(REPO_DIR):
+    # Utiliser le répertoire défini par la variable d'environnement ou créer un répertoire temporaire
+    repo_dir = None
+
+    # D'abord, essayer le répertoire configuré
+    configured_dir = os.path.abspath(REPO_DIR)
+
+    try:
+        # Tester si on peut écrire dans le répertoire parent
+        parent_dir = os.path.dirname(configured_dir)
+        if not os.path.exists(parent_dir):
+            os.makedirs(parent_dir, exist_ok=True)
+
+        # Si le répertoire existe déjà, vérifier qu'on peut y écrire
+        if os.path.exists(configured_dir):
+            test_file = os.path.join(configured_dir, ".write_test")
+            try:
+                with open(test_file, "w") as f:
+                    f.write("test")
+                os.remove(test_file)
+                repo_dir = configured_dir
+            except (IOError, OSError):
+                logging.warning(
+                    "Le répertoire %s n'est pas accessible en écriture", configured_dir
+                )
+        else:
+            # Essayer de créer le répertoire
+            try:
+                os.makedirs(configured_dir, exist_ok=True)
+                repo_dir = configured_dir
+            except (IOError, OSError) as e:
+                logging.warning(
+                    "Impossible de créer le répertoire %s: %s", configured_dir, e
+                )
+    except Exception as e:
+        logging.warning("Erreur lors de la vérification des permissions: %s", e)
+
+    # Si on n'a pas pu utiliser le répertoire configuré, utiliser un répertoire temporaire
+    if repo_dir is None:
+        repo_dir = os.path.join(tempfile.gettempdir(), "repo_clone_" + str(os.getpid()))
+        logging.info("Utilisation du répertoire temporaire: %s", repo_dir)
+        if not os.path.exists(repo_dir):
+            os.makedirs(repo_dir, exist_ok=True)
+
+    # Cloner ou mettre à jour le dépôt
+    if not os.path.exists(os.path.join(repo_dir, ".git")):
         logging.info(
-            "Clonage du repo depuis %s dans le dossier %s...", REPO_URL, REPO_DIR
+            "Clonage du repo depuis %s dans le dossier %s...", REPO_URL, repo_dir
         )
         try:
-            subprocess.run(["git", "clone", REPO_URL, REPO_DIR], check=True)
+            subprocess.run(["git", "clone", REPO_URL, repo_dir], check=True)
         except subprocess.CalledProcessError:
             logging.error("Erreur lors du clonage du repo.")
             sys.exit(1)
     else:
-        logging.info("Mise à jour du repo dans le dossier %s...", REPO_DIR)
+        logging.info("Mise à jour du repo dans le dossier %s...", repo_dir)
         try:
-            subprocess.run(["git", "-C", REPO_DIR, "pull"], check=True)
+            subprocess.run(["git", "-C", repo_dir, "pull"], check=True)
         except subprocess.CalledProcessError:
             logging.error("Erreur lors de la mise à jour du repo.")
             sys.exit(1)
+
+    return repo_dir
 
 
 def read_markdown_files() -> list[tuple[str, str]]:
@@ -212,7 +261,11 @@ def main() -> None:
     logging.info("Démarrage du script de mise à jour de l'index FAISS...")
 
     # Étape 1 : Cloner ou mettre à jour le dépôt GitHub
-    clone_or_update_repo()
+    repo_dir = clone_or_update_repo()
+
+    # Utiliser le répertoire retourné au lieu de la constante REPO_DIR
+    global REPO_DIR
+    REPO_DIR = repo_dir
 
     # Étape 2 : Lire et traiter les fichiers Markdown
     documents = read_markdown_files()
