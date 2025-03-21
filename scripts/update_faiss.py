@@ -15,11 +15,9 @@ Dépendances :
     - poetry add sentence-transformers faiss-cpu boto3
 """
 
-import glob
 import json
 import logging
 import os
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -29,13 +27,16 @@ import numpy as np
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
-from app.utils import export_data
-
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules de app
 sys.path.append(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
-
+from app.doc_utils import (
+    clone_or_update_repo,
+    process_documents_for_faiss,
+    read_markdown_files,
+)
+from app.utils import export_data
 
 # --- Chargement des variables d'environnement ---
 load_dotenv()
@@ -73,141 +74,6 @@ SEGMENT_MAX_LENGTH = 500  # Nombre maximal de caractères par segment
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
-
-
-# --- Fonctions utilitaires ---
-def clone_or_update_repo() -> str:
-    """
-    Clone ou met à jour le dépôt GitHub contenant la documentation.
-    Utilise un répertoire temporaire si le répertoire cible n'est pas accessible en écriture.
-
-    Returns:
-        str: Chemin du répertoire contenant le dépôt cloné
-    """
-    # Utiliser le répertoire défini par la variable d'environnement ou créer un répertoire temporaire
-    repo_dir = None
-
-    # D'abord, essayer le répertoire configuré
-    configured_dir = os.path.abspath(REPO_DIR)
-
-    try:
-        # Tester si on peut écrire dans le répertoire parent
-        parent_dir = os.path.dirname(configured_dir)
-        if not os.path.exists(parent_dir):
-            os.makedirs(parent_dir, exist_ok=True)
-
-        # Si le répertoire existe déjà, vérifier qu'on peut y écrire
-        if os.path.exists(configured_dir):
-            test_file = os.path.join(configured_dir, ".write_test")
-            try:
-                with open(test_file, "w") as f:
-                    f.write("test")
-                os.remove(test_file)
-                repo_dir = configured_dir
-            except (IOError, OSError):
-                logging.warning(
-                    "Le répertoire %s n'est pas accessible en écriture", configured_dir
-                )
-        else:
-            # Essayer de créer le répertoire
-            try:
-                os.makedirs(configured_dir, exist_ok=True)
-                repo_dir = configured_dir
-            except (IOError, OSError) as e:
-                logging.warning(
-                    "Impossible de créer le répertoire %s: %s", configured_dir, e
-                )
-    except Exception as e:
-        logging.warning("Erreur lors de la vérification des permissions: %s", e)
-
-    # Si on n'a pas pu utiliser le répertoire configuré, utiliser un répertoire temporaire
-    if repo_dir is None:
-        repo_dir = os.path.join(tempfile.gettempdir(), "repo_clone_" + str(os.getpid()))
-        logging.info("Utilisation du répertoire temporaire: %s", repo_dir)
-        if not os.path.exists(repo_dir):
-            os.makedirs(repo_dir, exist_ok=True)
-
-    # Cloner ou mettre à jour le dépôt
-    if not os.path.exists(os.path.join(repo_dir, ".git")):
-        logging.info(
-            "Clonage du repo depuis %s dans le dossier %s...", REPO_URL, repo_dir
-        )
-        try:
-            subprocess.run(["git", "clone", REPO_URL, repo_dir], check=True)
-        except subprocess.CalledProcessError:
-            logging.error("Erreur lors du clonage du repo.")
-            sys.exit(1)
-    else:
-        logging.info("Mise à jour du repo dans le dossier %s...", repo_dir)
-        try:
-            subprocess.run(["git", "-C", repo_dir, "pull"], check=True)
-        except subprocess.CalledProcessError:
-            logging.error("Erreur lors de la mise à jour du repo.")
-            sys.exit(1)
-
-    return repo_dir
-
-
-def read_markdown_files() -> list[tuple[str, str]]:
-    """
-    Lit tous les fichiers Markdown du dépôt et retourne une liste de tuples (chemin, contenu).
-    """
-    markdown_files = glob.glob(os.path.join(REPO_DIR, "**", "*.md"), recursive=True)
-    documents = []
-    for file_path in markdown_files:
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-                documents.append((file_path, content))
-        except (IOError, OSError) as e:
-            logging.warning("Impossible de lire le fichier %s: %s", file_path, e)
-    logging.info("Nombre de fichiers Markdown lus: %d", len(documents))
-    return documents
-
-
-def segment_text(text: str, max_length: int = SEGMENT_MAX_LENGTH) -> list[str]:
-    """
-    Segmente le texte en morceaux de longueur maximale max_length.
-    Une segmentation simple basée sur les sauts de ligne et la longueur.
-    """
-    segments = []
-    paragraphs = text.split("\n\n")
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-        # Si le paragraphe est trop long, le découper en morceaux
-        if len(para) > max_length:
-            for i in range(0, len(para), max_length):
-                segments.append(para[i : i + max_length])
-        else:
-            segments.append(para)
-    return segments
-
-
-def process_documents(documents: list[tuple[str, str]]) -> list[dict]:
-    """
-    Pour chaque document, segmente le contenu et retourne une liste de dictionnaires contenant
-    le texte, un identifiant numérique et des métadonnées.
-    """
-    processed = []
-    current_id = 0
-    for file_path, content in documents:
-        segments = segment_text(content)
-        for idx, segment in enumerate(segments):
-            entry = {
-                "numeric_id": current_id,
-                "text": segment,
-                "metadata": {
-                    "original_id": f"{Path(file_path).stem}_{idx}",
-                    "file_path": file_path,
-                    "segment_index": idx,
-                },
-            }
-            processed.append(entry)
-            current_id += 1
-    logging.info("Nombre total de segments générés: %d", len(processed))
-    return processed
 
 
 def create_faiss_index(
@@ -261,15 +127,11 @@ def main() -> None:
     logging.info("Démarrage du script de mise à jour de l'index FAISS...")
 
     # Étape 1 : Cloner ou mettre à jour le dépôt GitHub
-    repo_dir = clone_or_update_repo()
-
-    # Utiliser le répertoire retourné au lieu de la constante REPO_DIR
-    global REPO_DIR
-    REPO_DIR = repo_dir
+    repo_dir = clone_or_update_repo(REPO_URL, REPO_DIR)
 
     # Étape 2 : Lire et traiter les fichiers Markdown
-    documents = read_markdown_files()
-    processed_docs = process_documents(documents)
+    documents = read_markdown_files(repo_dir)
+    processed_docs = process_documents_for_faiss(documents, SEGMENT_MAX_LENGTH)
 
     # Étape 3 : Charger le modèle d'embedding
     logging.info("Chargement du modèle d'embedding 'all-MiniLM-L6-v2'...")
