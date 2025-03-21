@@ -8,7 +8,6 @@ import os
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 
 
 def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
@@ -23,53 +22,53 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
     Returns:
         str: Chemin du répertoire contenant le dépôt cloné
     """
-    # Utiliser le répertoire défini par la variable d'environnement ou créer un répertoire temporaire
-    repo_dir_path = None
-
-    # D'abord, essayer le répertoire configuré
     configured_dir = os.path.abspath(repo_dir)
-
+    repo_dir_path = configured_dir
+    
     try:
         # Tester si on peut écrire dans le répertoire parent
         parent_dir = os.path.dirname(configured_dir)
         if not os.path.exists(parent_dir):
             os.makedirs(parent_dir, exist_ok=True)
-
-        # Si le répertoire existe déjà, vérifier qu'on peut y écrire
+        
+        # Si le répertoire existe, on vérifie qu'on peut y écrire
         if os.path.exists(configured_dir):
             test_file = os.path.join(configured_dir, ".write_test")
             try:
                 with open(test_file, "w") as f:
                     f.write("test")
                 os.remove(test_file)
-                repo_dir_path = configured_dir
             except (IOError, OSError):
-                logging.warning(
-                    "Le répertoire %s n'est pas accessible en écriture", configured_dir
+                # Si on ne peut pas écrire, on utilise un répertoire temporaire
+                repo_dir_path = os.path.join(
+                    tempfile.gettempdir(),
+                    f"repo_clone_{os.getpid()}"
                 )
+                os.makedirs(repo_dir_path, exist_ok=True)
         else:
-            # Essayer de créer le répertoire
+            # Si le répertoire n'existe pas, on essaie de le créer
             try:
                 os.makedirs(configured_dir, exist_ok=True)
-                repo_dir_path = configured_dir
-            except (IOError, OSError) as e:
-                logging.warning(
-                    "Impossible de créer le répertoire %s: %s", configured_dir, e
+            except (IOError, OSError):
+                # Si on ne peut pas créer le répertoire, on utilise un temporaire
+                repo_dir_path = os.path.join(
+                    tempfile.gettempdir(),
+                    f"repo_clone_{os.getpid()}"
                 )
+                os.makedirs(repo_dir_path, exist_ok=True)
+
     except Exception as e:
         logging.warning("Erreur lors de la vérification des permissions: %s", e)
-
-    # Si on n'a pas pu utiliser le répertoire configuré, utiliser un répertoire temporaire
-    if repo_dir_path is None:
+        # Utiliser un répertoire temporaire comme fallback
         repo_dir_path = os.path.join(
-            tempfile.gettempdir(), "repo_clone_" + str(os.getpid())
+            tempfile.gettempdir(),
+            f"repo_clone_{os.getpid()}"
         )
-        logging.info("Utilisation du répertoire temporaire: %s", repo_dir_path)
-        if not os.path.exists(repo_dir_path):
-            os.makedirs(repo_dir_path, exist_ok=True)
+        os.makedirs(repo_dir_path, exist_ok=True)
 
     # Cloner ou mettre à jour le dépôt
-    if not os.path.exists(os.path.join(repo_dir_path, ".git")):
+    git_dir = os.path.join(repo_dir_path, ".git")
+    if not os.path.exists(git_dir):
         logging.info(
             "Clonage du repo depuis %s dans le dossier %s...", repo_url, repo_dir_path
         )
