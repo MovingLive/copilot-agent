@@ -6,7 +6,6 @@ Ce module centralise les fonctions d'exportation locale ou vers S3.
 import logging
 import os
 import shutil
-from pathlib import Path
 
 import boto3
 from dotenv import load_dotenv

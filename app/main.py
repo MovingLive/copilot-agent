@@ -1,11 +1,9 @@
 import json
 import logging
 import os
-import shutil
 import threading
 import time
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import List, Optional
 
 import boto3
@@ -29,7 +27,10 @@ load_dotenv()
 # --- Configuration ---
 ENV = os.getenv("ENV", "local")
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
-FAISS_KEY = os.getenv("FAISS_KEY", "index.faiss")
+
+FAISS_METADATA_FILE = os.getenv("FAISS_METADATA_FILE", "metadata.json")
+FAISS_INDEX_FILE = os.getenv("FAISS_INDEX_FILE", "index.faiss")
+
 AWS_REGION = os.getenv("AWS_REGION", "canada-central-1")
 COPILOT_API_URL = os.getenv(
     "COPILOT_API_URL", "https://api.githubcopilot.com/chat/completions"
@@ -89,7 +90,7 @@ def load_faiss_index() -> None:
     try:
         if is_local_environment():
             # Charger depuis le répertoire local
-            local_faiss_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_KEY)
+            local_faiss_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_INDEX_FILE)
             if os.path.exists(local_faiss_path):
                 logger.info(
                     "Chargement de l'index FAISS depuis le répertoire local: %s",
@@ -99,15 +100,15 @@ def load_faiss_index() -> None:
                 logger.warning(
                     "Index FAISS introuvable dans le répertoire local, création d'un index vide."
                 )
-                local_faiss_path = f"/tmp/{FAISS_KEY}"
+                local_faiss_path = f"/tmp/{FAISS_INDEX_FILE}"
                 # Créer un index vide si aucun n'existe
                 empty_index = faiss.IndexFlatL2(128)  # Dimension 128 par défaut
                 faiss.write_index(empty_index, local_faiss_path)
         else:
             # Télécharger l'index depuis S3 vers un chemin temporaire
-            local_faiss_path = f"/tmp/{FAISS_KEY}"
+            local_faiss_path = f"/tmp/{FAISS_INDEX_FILE}"
             s3_client = boto3.client("s3", region_name=AWS_REGION)
-            s3_client.download_file(S3_BUCKET_NAME, FAISS_KEY, local_faiss_path)
+            s3_client.download_file(S3_BUCKET_NAME, FAISS_INDEX_FILE, local_faiss_path)
             logger.info("Index FAISS téléchargé depuis S3.")
 
         # Charger l'index FAISS
@@ -115,23 +116,24 @@ def load_faiss_index() -> None:
         logger.info("Index FAISS chargé en mémoire.")
 
         # Optionnel : charger un mapping document associé à l'index.
-        # On suppose qu'un fichier JSON (ex: index.faiss.json) existe dans le bucket ou localement.
-        local_mapping_path = local_faiss_path + ".json"
+        local_metadata_path = f"/tmp/{FAISS_METADATA_FILE}"
 
         try:
             if is_local_environment():
-                mapping_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_KEY + ".json")
-                if os.path.exists(mapping_path):
-                    local_mapping_path = mapping_path
+                metadata_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_METADATA_FILE)
+                if os.path.exists(metadata_path):
+                    local_metadata_path = metadata_path
                 else:
-                    raise FileNotFoundError("Mapping file not found in local directory")
+                    raise FileNotFoundError(
+                        "Fichier de métadonnées introuvable dans le répertoire local"
+                    )
             else:
                 s3_client = boto3.client("s3", region_name=AWS_REGION)
                 s3_client.download_file(
-                    S3_BUCKET_NAME, FAISS_KEY + ".json", local_mapping_path
+                    S3_BUCKET_NAME, FAISS_METADATA_FILE, local_metadata_path
                 )
 
-            with open(local_mapping_path, "r", encoding="utf-8") as f:
+            with open(local_metadata_path, "r", encoding="utf-8") as f:
                 document_store = json.load(f)
             logger.info("Mapping des documents chargé.")
         except Exception as e:

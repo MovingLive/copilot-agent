@@ -43,11 +43,15 @@ poetry env activate
 - Créer un fichier `.env` à la racine du projet avec les variables d'environnement nécessaires.
 
 ```bash
-S3_BUCKET=<your_s3_bucket>
-FAISS_KEY=<your_faiss_key>
 AWS_REGION=<your_aws_region>
 COPILOT_API_URL=https://api.githubcopilot.com/chat/completions
 COPILOT_TOKEN=<your_github_token>
+ENV=local
+REPO_DIR=<your_local_repo_dir>
+REPO_URL=<your_repo_url>
+S3_BUCKET_NAME=<your_s3_bucket>
+FAISS_METADATA_FILE=id_mapping.json
+FAISS_INDEX_FILE=index.faiss
 ```
 
 - Lancer l'application FastAPI.
@@ -81,3 +85,25 @@ Pour des fins de tests, 2 technologies utilisées:
 - **Indexation dans Chroma DB:** Les embeddings (avec leurs métadonnées, par exemple le nom du fichier, le contexte, etc.) sont stockés dans une instance de Chroma DB.
 - **Persistance sur AWS S3:** La base vectorielle est persistée dans un dossier local, puis synchronisée vers votre bucket S3 (déjà protégé) pour un stockage centralisé et accessible depuis votre instance AWS.
 - **Automatisation via GitHub Actions:** Une action planifiée (cron) déclenche l’exécution quotidienne du script pour mettre à jour la base vectorielle.
+
+### Outputs
+
+#### Le fichier .faiss
+
+Ce fichier contient l'index vectoriel lui-même. C’est un binaire optimisé pour :
+
+- Stocker les vecteurs (embeddings)
+- Permettre une recherche rapide de similarité (approximate nearest neighbor search)
+- Être chargé rapidement en mémoire pour faire des requêtes
+
+Ce fichier est utilisé directement par FAISS au moment où tu fais une recherche. Il est donc crucial pour l’inférence.
+
+### Le fichier .json
+
+Ce fichier contient les métadonnées associées aux vecteurs. Typiquement :
+
+- L’ID ou la clé de chaque vecteur
+- Le contenu original (texte, titre, URL, etc.)
+- Toute autre information utile à restituer quand tu fais une recherche
+
+Quand tu fais une requête dans ton moteur de recherche vectoriel, tu obtiens un ou plusieurs vecteurs similaires depuis FAISS (grâce au .faiss), mais pour afficher les résultats à l’utilisateur, tu as besoin de retrouver ce que représentait chaque vecteur → c’est là que le .json est utile.

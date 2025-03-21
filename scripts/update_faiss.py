@@ -54,9 +54,9 @@ REPO_DIR = os.getenv("REPO_DIR", "documentation_repo")
 # Dossier de persistance de l'index FAISS
 FAISS_PERSIST_DIR = os.path.join(tempfile.gettempdir(), "faiss_index")
 # Nom du fichier d'index FAISS
-FAISS_INDEX_FILE = "faiss.index"
+FAISS_INDEX_FILE = os.getenv("FAISS_INDEX_FILE", "index.faiss")
 # Nom du fichier de mapping des IDs (pour retrouver les métadonnées)
-ID_MAPPING_FILE = "id_mapping.json"
+FAISS_METADATA_FILE = os.getenv("FAISS_METADATA_FILE", "metadata.json")
 
 # Paramètres pour la synchronisation S3
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
@@ -113,7 +113,7 @@ def save_faiss_index(
     if not os.path.exists(directory):
         os.makedirs(directory)
     index_file_path = os.path.join(directory, FAISS_INDEX_FILE)
-    mapping_file_path = os.path.join(directory, ID_MAPPING_FILE)
+    mapping_file_path = os.path.join(directory, FAISS_METADATA_FILE)
 
     faiss.write_index(index, index_file_path)
     with open(mapping_file_path, "w", encoding="utf-8") as f:

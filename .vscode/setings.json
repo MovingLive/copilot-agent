@@ -5,20 +5,25 @@
     "[markdown]": {
         "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
     },
-    "[python]": {
-        "editor.codeActionsOnSave": {
-            "source.fixAll": "explicit",
-            "source.organizeImports": "explicit"
-        }
+    "editor.codeActionsOnSave": {
+        "source.fixAll": "always",
+        "source.organizeImports": "always",
+        "source.removeUnusedImports": "always"
     },
     "editor.defaultFormatter": "charliermarsh.ruff",
-    "editor.formatOnSave": true,
+    "editor.formatOnPaste": true,
+    "editor.formatOnType": true,
     "files.exclude": {
-        "**/.pytest_cache": true,
-        "**/__pycache__": true
+        "**/__pycache__": true,
+        "**/.pytest_cache": true
     },
     "github.copilot.chat.codeGeneration.useInstructionFiles": true,
     "github.copilot.chat.generateTests.codeLens": true,
+    "github.copilot.chat.testGeneration.instructions": [
+        {
+            "file": ".github/tests-instructions.md"
+        }
+    ],
     "githubPullRequests.experimental.chat": true,
     "githubPullRequests.experimental.notificationsView": true,
     "mypy-type-checker.reportingScope": "workspace",
@@ -37,7 +42,5 @@
     "terminal.integrated.minimumContrastRatio": 1,
     "workbench.editor.enablePreview": false,
     "workbench.editor.limit.enabled": true,
-    "workbench.editor.limit.value": 6,
-    "editor.formatOnPaste": true,
-    "editor.formatOnType": true
+    "workbench.editor.limit.value": 6
 }
