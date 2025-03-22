@@ -162,10 +162,23 @@ def embed_text(text: str) -> List[float]:
     """
     Fonction fictive pour générer un embedding à partir d'un texte.
     Remplace-la par ton modèle d'embedding (par exemple SentenceTransformers).
-    Ici, on retourne un vecteur aléatoire de dimension 128.
+    Ici, on retourne un vecteur aléatoire correspondant à la dimension de l'index.
     """
+    # Règle appliquée: Gestion des erreurs
+    global FAISS_INDEX
+    # Détermine la dimension à utiliser en fonction de l'index FAISS existant
+    dim = 384  # Dimension par défaut
+    if FAISS_INDEX is not None:
+        try:
+            dim = FAISS_INDEX.d  # Utilise la dimension exacte de l'index
+        except AttributeError:
+            logger.warning(
+                "Impossible de déterminer la dimension de l'index FAISS, utilisation de la dimension par défaut %d",
+                dim,
+            )
+
     np.random.seed(abs(hash(text)) % (2**32))
-    return np.random.rand(128).tolist()
+    return np.random.rand(dim).tolist()
 
 
 def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
@@ -187,7 +200,50 @@ def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
         if query_vector.size == 0:
             raise ValueError("Failed to generate embedding for query")
 
-        distances, indices = FAISS_INDEX.search(query_vector, k)
+        # Logs pour diagnostiquer l'AssertionError
+        logger.info("Query vector shape: %s", query_vector.shape)
+        logger.info("Query vector type: %s", query_vector.dtype)
+        logger.info("FAISS index size: %d", FAISS_INDEX.ntotal)
+        logger.info("FAISS index dimension: %d", FAISS_INDEX.d)
+
+        # Vérification de compatibilité des dimensions
+        # Règle appliquée: Validation et vérifications explicites
+        if query_vector.shape[1] != FAISS_INDEX.d:
+            logger.error(
+                "Incompatibilité de dimensions: vecteur de requête (%d) != index FAISS (%d)",
+                query_vector.shape[1],
+                FAISS_INDEX.d,
+            )
+            # Ajuster dynamiquement la dimension du vecteur de requête
+            new_query_vector = np.zeros((1, FAISS_INDEX.d), dtype="float32")
+            min_dim = min(query_vector.shape[1], FAISS_INDEX.d)
+            new_query_vector[0, :min_dim] = query_vector[0, :min_dim]
+            query_vector = new_query_vector
+            logger.info(
+                "Vecteur de requête redimensionné à la dimension %d", FAISS_INDEX.d
+            )
+
+        try:
+            logger.info("Exécution de FAISS_INDEX.search avec k=%d", k)
+            distances, indices = FAISS_INDEX.search(query_vector, k)
+            logger.info(
+                "Recherche FAISS réussie. Distances shape: %s, Indices shape: %s",
+                distances.shape,
+                indices.shape,
+            )
+        except AssertionError as ae:
+            logger.error(
+                "AssertionError dans FAISS_INDEX.search: %s",
+                str(ae) if str(ae) else "Assertion vide",
+            )
+            logger.error("Détails de l'index FAISS: %s", str(FAISS_INDEX))
+            logger.error("Est-ce que l'index est vide? %s", FAISS_INDEX.ntotal == 0)
+            logger.error(
+                "Vecteur de requête (premiers éléments): %s", query_vector.flatten()[:5]
+            )
+            raise HTTPException(
+                status_code=500, detail="Erreur d'assertion lors de la recherche FAISS"
+            ) from ae
 
         results = []
         for idx in indices[0]:
@@ -204,9 +260,10 @@ def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
         raise HTTPException(status_code=400, detail=str(ve)) from ve
     except Exception as e:
         logger.error("Error in retrieve_similar_documents: %s", e)
+        logger.error("Type d'exception: %s", type(e).__name__)
         raise HTTPException(
             status_code=500,
-            detail="An error occurred while searching similar documents"
+            detail="An error occurred while searching similar documents",
         ) from e
 
 
