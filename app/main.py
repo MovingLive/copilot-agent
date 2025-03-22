@@ -173,17 +173,41 @@ def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
     Recherche dans l'index FAISS les k documents les plus proches de la requête.
     Retourne une liste de dictionnaires représentant les documents.
     """
-    if FAISS_INDEX is None:
-        logger.error("Index FAISS non chargé.")
-        return []
-    # Générer l'embedding de la requête
-    query_vector = np.array([embed_text(query)]).astype("float32")
-    distances, indices = FAISS_INDEX.search(query_vector, k)
-    results = []
-    for idx in indices[0]:
-        if idx < len(document_store):
-            results.append(document_store[idx])
-    return results
+    try:
+        if not query:
+            raise ValueError("Query cannot be empty")
+
+        if FAISS_INDEX is None:
+            logger.error("Index FAISS non chargé.")
+            return []
+
+        # Générer l'embedding de la requête
+        query_vector = np.array([embed_text(query)]).astype("float32")
+
+        if query_vector.size == 0:
+            raise ValueError("Failed to generate embedding for query")
+
+        distances, indices = FAISS_INDEX.search(query_vector, k)
+
+        results = []
+        for idx in indices[0]:
+            if idx < len(document_store):
+                results.append(document_store[idx])
+
+        if not results:
+            logger.warning("No matching documents found for query: %s", query)
+
+        return results
+
+    except ValueError as ve:
+        logger.error("Validation error in retrieve_similar_documents: %s", ve)
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+    except Exception as e:
+        logger.error("Error in retrieve_similar_documents: %s", e)
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred while searching similar documents"
+        ) from e
 
 
 def call_copilot_llm(question: str, context_text: str) -> str:
@@ -284,11 +308,21 @@ async def query_copilot(request: Request) -> StreamingResponse:
             "content": f"Commence chaque réponse par le nom de l'utilisateur, qui est @{user_login}",
         },
     )
+
+    # Ajout du contexte récupéré via FAISS
+    if answer:
+        messages.insert(
+            0,
+            {
+                "role": "system",
+                "content": f"Utilise les informations suivantes pour enrichir ta réponse: {answer}",
+            },
+        )
     messages.insert(
         0,
         {
             "role": "system",
-            "content": "Pour chaque réponse, termine par une section 'Le savais-tu?' qui apporte une information technique pertinente et intéressante en lien avec la réponse donnée. Cette section doit être formatée ainsi : '\n\nLe savais-tu ? [Information technique]'"
+            "content": "Pour chaque réponse, termine par une section 'Le savais-tu?' qui apporte une information technique pertinente et intéressante en lien avec la réponse donnée. Cette section doit être formatée ainsi : '\n\nLe savais-tu ? [Information technique]'",
         },
     )
 
