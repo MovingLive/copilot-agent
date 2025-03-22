@@ -66,3 +66,15 @@ jobs:
           poetry run coverage run -m pytest --junitxml=test-results.xml
           poetry run coverage xml
           poetry run coverage report
+
+      - name: Publish Test Results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: test-results.xml
+          
+      - name: Upload Coverage Report to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: htmlcov/
