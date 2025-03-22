@@ -96,7 +96,9 @@ def load_faiss_index() -> None:
                 local_faiss_path = f"/tmp/{FAISS_INDEX_FILE}"
                 # Créer un index vide si aucun n'existe
                 # Utiliser la même dimension que le modèle d'embedding
-                empty_index = faiss.IndexFlatL2(384)  # Dimension du modèle all-MiniLM-L6-v2
+                empty_index = faiss.IndexFlatL2(
+                    384
+                )  # Dimension du modèle all-MiniLM-L6-v2
 
                 faiss.write_index(empty_index, local_faiss_path)
         else:
@@ -109,6 +111,17 @@ def load_faiss_index() -> None:
         # Charger l'index FAISS
         FAISS_INDEX = faiss.read_index(local_faiss_path)
         logger.info("Index FAISS chargé en mémoire.")
+        # Règle appliquée: Modularisation - Logs détaillés pour diagnostiquer l'index
+        logger.info(
+            f"Index FAISS chargé: type={type(FAISS_INDEX)}, dimension={FAISS_INDEX.d}, nombre d'éléments={FAISS_INDEX.ntotal}"
+        )
+        logger.info(
+            f"Est-ce que l'index est entraîné? {hasattr(FAISS_INDEX, 'is_trained') and FAISS_INDEX.is_trained}"
+        )
+        if FAISS_INDEX.ntotal == 0:
+            logger.warning(
+                "ATTENTION: L'index FAISS est vide (ntotal=0). Aucun résultat de recherche ne sera retourné."
+            )
 
         # Optionnel : charger un mapping document associé à l'index.
         try:
@@ -129,7 +142,26 @@ def load_faiss_index() -> None:
 
             with open(local_metadata_path, "r", encoding="utf-8") as f:
                 document_store = json.load(f)
-            logger.info("Mapping des documents chargé.")
+            logger.info(
+                f"Mapping des documents chargé avec {len(document_store)} entrées."
+            )
+            # Règle appliquée: Modularisation - Ajouter des logs sur la structure pour diagnostiquer le document_store
+            if isinstance(document_store, dict):
+                sample_keys = list(document_store.keys())[:5]
+                logger.info(f"Échantillon de clés dans document_store: {sample_keys}")
+                if sample_keys:
+                    sample_doc = document_store[sample_keys[0]]
+                    logger.info(
+                        f"Structure d'un document type: {json.dumps(sample_doc, indent=2)[:200]}..."
+                    )
+            elif isinstance(document_store, list):
+                logger.info(
+                    f"document_store est une liste de {len(document_store)} éléments"
+                )
+                if document_store:
+                    logger.info(
+                        f"Structure du premier élément: {json.dumps(document_store[0], indent=2)[:200]}..."
+                    )
         except Exception as e:
             logger.warning(
                 "Mapping des documents introuvable, utilisation d'une liste vide: %s", e
@@ -164,7 +196,7 @@ def embed_text(text: str) -> List[float]:
         text (str): Le texte à transformer en embedding
 
     Returns:
-        List[float]: Le vecteur d'embedding représentant le texte, avec des valeurs entre 0 et 1
+        List[float]: Le vecteur d'embedding normalisé représentant le texte
     """
     global EMBEDDING_MODEL
 
@@ -175,29 +207,29 @@ def embed_text(text: str) -> List[float]:
             EMBEDDING_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
 
         # Générer l'embedding
-        embedding = EMBEDDING_MODEL.encode(text)
+        embedding = EMBEDDING_MODEL.encode(
+            text, normalize_embeddings=True
+        )  # Normalisation L2 directement
 
-        # Normaliser l'embedding pour garantir des valeurs entre 0 et 1
-        min_val = embedding.min()
-        max_val = embedding.max()
+        # Log des caractéristiques de l'embedding pour diagnostic
+        logger.info(
+            "Embedding généré avec succès: min=%f, max=%f, norme=%f",
+            np.min(embedding),
+            np.max(embedding),
+            np.linalg.norm(embedding),
+        )
 
-        # Éviter division par zéro si min == max
-        if min_val == max_val:
-            normalized = np.zeros_like(embedding)
-        else:
-            normalized = (embedding - min_val) / (max_val - min_val)
-
-        return normalized.tolist()
+        return embedding.tolist()
 
     except Exception as e:
         logger.error("Erreur lors de la génération de l'embedding: %s", e)
-
-        # Fallback : générer un vecteur aléatoire comme avant en cas d'erreur
-        # Assure la compatibilité avec l'index existant
+        # Fallback en cas d'erreur
         dim = 384  # Dimension standard pour le modèle all-MiniLM-L6-v2
         rng = np.random.RandomState(abs(hash(text)) % (2**32))
-        vector = rng.rand(dim).astype("float32")  # Déjà entre 0 et 1
-        logger.warning("Utilisation d'un vecteur aléatoire en fallback")
+        vector = rng.rand(dim).astype("float32")
+        # Normalisation L2 du vecteur aléatoire
+        vector = vector / np.linalg.norm(vector)
+        logger.warning("Utilisation d'un vecteur aléatoire normalisé en fallback")
         return vector.tolist()
 
 
@@ -207,6 +239,12 @@ def retrieve_similar_documents(query: str, k: int = 5) -> List[dict]:
     Retourne une liste de dictionnaires représentant les documents.
     """
     try:
+        logger.info(
+            "Début de retrieve_similar_documents avec query='%s...' et k=%d",
+            query[:50],
+            k,
+        )
+
         if not query:
             raise ValueError("Query cannot be empty")
 
@@ -215,7 +253,14 @@ def retrieve_similar_documents(query: str, k: int = 5) -> List[dict]:
             return []
 
         # Générer l'embedding de la requête
+        logger.info("Génération de l'embedding pour la requête...")
         query_vector = np.array([embed_text(query)]).astype("float32")
+        logger.info(
+            "Embedding généré: shape=%s, min=%.4f, max=%.4f",
+            query_vector.shape,
+            query_vector.min(),
+            query_vector.max(),
+        )
 
         if query_vector.size == 0:
             raise ValueError("Failed to generate embedding for query")
@@ -245,11 +290,26 @@ def retrieve_similar_documents(query: str, k: int = 5) -> List[dict]:
         try:
             logger.info("Exécution de FAISS_INDEX.search avec k=%d", k)
             distances, indices = FAISS_INDEX.search(query_vector, k)
+
+            # Analyse statistique des distances pour diagnostic
             logger.info(
-                "Recherche FAISS réussie. Distances shape: %s, Indices shape: %s",
-                distances.shape,
-                indices.shape,
+                "Statistiques des distances: min=%.4f, max=%.4f, moyenne=%.4f",
+                distances.min(),
+                distances.max(),
+                distances.mean(),
             )
+            if distances.mean() > 50.0:
+                logger.warning(
+                    "Les distances vectorielles sont très élevées, suggérant une faible pertinence"
+                )
+
+            # Règle appliquée: Python Usage - Utilisation du lazy % formatting dans les logging functions
+            logger.info("Indices trouvés: %s", indices[0])
+            logger.info("Distances associées: %s", distances[0])
+            if np.all(indices[0] == -1):
+                logger.warning(
+                    "ATTENTION: Tous les indices retournés sont -1, ce qui indique qu'aucun résultat n'a été trouvé"
+                )
         except AssertionError as ae:
             logger.error(
                 "AssertionError dans FAISS_INDEX.search: %s",
@@ -275,36 +335,86 @@ def retrieve_similar_documents(query: str, k: int = 5) -> List[dict]:
         )
 
         results = []
-        for idx in indices[0]:
-            # Accéder au document en utilisant l'index comme clé de chaîne
+        # Règle appliquée: Python Usage - Utilisation du lazy % formatting dans les logging functions
+        logger.info(
+            "Tentative de récupération des documents à partir des indices: %s",
+            indices[0],
+        )
+
+        for i, idx in enumerate(indices[0]):
             if idx >= 0:
                 doc_key = str(idx)
+                logger.info(
+                    "Recherche du document avec clé=%s, distance=%.4f",
+                    doc_key,
+                    distances[0][i],
+                )
+
                 if doc_key in document_store:
                     doc = document_store[doc_key]
-                    # Vérifier plusieurs sources possibles du contenu
-                    content = doc.get("content", None)
-                    if content is None and "metadata" in doc:
-                        content = doc["metadata"].get("content", "")
+                    logger.info(
+                        "Document trouvé pour l'indice %d. Clés disponibles: %s",
+                        idx,
+                        list(doc.keys()) if isinstance(doc, dict) else "Non dict",
+                    )
 
-                    if content:
-                        results.append({"content": content})
+                    # Extraire le contenu complet avec vérification de toutes les structures possibles
+                    content = None
+
+                    # Vérification directe de la clé content
+                    if isinstance(doc, dict) and "content" in doc:
+                        content = doc["content"]
+                        logger.info(
+                            "Contenu trouvé directement (taille: %d)",
+                            len(content) if content else 0,
+                        )
+
+                    # ... existing code...
+
+                    # Log du document complet pour debug
+                    if isinstance(doc, dict):
+                        logger.debug(
+                            "Structure complète du document: %s",
+                            json.dumps(doc, indent=2),
+                        )
                     else:
-                        logger.warning("Document sans contenu trouvé: %s", doc)
+                        logger.debug("Document non-dictionnaire: %s", str(doc)[:100])
+
+                    # Ajouter aux résultats si contenu trouvé
+                    if content:
+                        # Log du contenu complet pour vérification (en mode debug)
+                        logger.debug(
+                            "Contenu complet: %s",
+                            content[:200] + "..." if len(content) > 200 else content,
+                        )
+                        results.append({"content": content})
+                        logger.info(
+                            "Document ajouté aux résultats (longueur: %d caractères)",
+                            len(content),
+                        )
+                    else:
+                        logger.warning(
+                            "Aucun contenu trouvé dans le document: %s",
+                            str(doc)[:100] + "..." if len(str(doc)) > 100 else str(doc),
+                        )
                 else:
-                    logger.debug("Index non trouvé dans document_store: %s", idx)
+                    logger.warning("Indice %d non trouvé dans document_store", idx)
+
+        logger.info("Nombre de résultats retournés: %d", len(results))
 
         if not results:
             logger.warning("No matching documents found for query: %s", query)
 
-        logger.info("Documents récupérés: %s", json.dumps(results, indent=2)[:500])
         return results
 
     except ValueError as ve:
         logger.error("Validation error in retrieve_similar_documents: %s", ve)
+        # Règle appliquée: Python Usage - Explicitly re-raising avec from
         raise HTTPException(status_code=400, detail=str(ve)) from ve
     except Exception as e:
         logger.error("Error in retrieve_similar_documents: %s", e)
         logger.error("Type d'exception: %s", type(e).__name__)
+        # Règle appliquée: Error Handling - Logging approprié pour le débogage
         raise HTTPException(
             status_code=500,
             detail="An error occurred while searching similar documents",
