@@ -4,7 +4,7 @@ import os
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List
 
 import boto3
 import faiss
@@ -14,7 +14,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from sentence_transformers import SentenceTransformer
 
 from app.utils.export_utils import (
     LOCAL_OUTPUT_DIR,
@@ -40,6 +40,8 @@ COPILOT_TOKEN = os.getenv("COPILOT_TOKEN", "")
 # --- Variables globales ---
 FAISS_INDEX = None
 document_store = []
+# Initialisation du modèle d'embedding à None (sera chargé au démarrage)
+EMBEDDING_MODEL = None
 
 # --- Logger ---
 logging.basicConfig(level=logging.DEBUG)
@@ -53,6 +55,15 @@ async def lifespan(_: FastAPI):
     Gère le cycle de vie de l'application FastAPI.
     """
     logger.info("Démarrage de l'application et chargement de l'index FAISS...")
+    # Charger le modèle d'embedding
+    global EMBEDDING_MODEL
+    try:
+        logger.info("Chargement du modèle d'embedding...")
+        EMBEDDING_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("Modèle d'embedding chargé avec succès.")
+    except Exception as e:
+        logger.error("Erreur lors du chargement du modèle d'embedding: %s", e)
+
     load_faiss_index()
     # Lancer la mise à jour périodique de l'index dans un thread de fond
     threading.Thread(target=update_faiss_index_periodically, daemon=True).start()
@@ -64,20 +75,6 @@ async def lifespan(_: FastAPI):
 
 # --- Instance FastAPI ---
 app = FastAPI(lifespan=lifespan)
-
-
-# --- Modèles Pydantic ---
-class QueryRequest(BaseModel):
-    question: str
-    context: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class QueryResponse(BaseModel):
-    answer: str
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 # --- Fonctions utilitaires ---
@@ -159,17 +156,47 @@ def update_faiss_index_periodically():
 
 def embed_text(text: str) -> List[float]:
     """
-    Fonction fictive pour générer un embedding à partir d'un texte.
-    Remplace-la par ton modèle d'embedding (par exemple SentenceTransformers).
-    Ici, on retourne un vecteur aléatoire correspondant à la dimension de l'index.
-    """
-    # Dimension fixe de 384 pour garantir la cohérence
-    dim = 384
+    Génère un embedding vectoriel à partir d'un texte en utilisant un modèle pré-entraîné.
 
-    # Utiliser le même seed pour le même texte pour garantir la cohérence
-    rng = np.random.RandomState(abs(hash(text)) % (2**32))
-    vector = rng.rand(dim).astype("float32")
-    return vector.tolist()
+    Args:
+        text (str): Le texte à transformer en embedding
+
+    Returns:
+        List[float]: Le vecteur d'embedding représentant le texte, avec des valeurs entre 0 et 1
+    """
+    global EMBEDDING_MODEL
+
+    try:
+        # Vérifier si le modèle est chargé
+        if EMBEDDING_MODEL is None:
+            logger.warning("Modèle d'embedding non chargé, tentative de chargement...")
+            EMBEDDING_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+
+        # Générer l'embedding
+        embedding = EMBEDDING_MODEL.encode(text)
+
+        # Normaliser l'embedding pour garantir des valeurs entre 0 et 1
+        min_val = embedding.min()
+        max_val = embedding.max()
+
+        # Éviter division par zéro si min == max
+        if min_val == max_val:
+            normalized = np.zeros_like(embedding)
+        else:
+            normalized = (embedding - min_val) / (max_val - min_val)
+
+        return normalized.tolist()
+
+    except Exception as e:
+        logger.error("Erreur lors de la génération de l'embedding: %s", e)
+
+        # Fallback : générer un vecteur aléatoire comme avant en cas d'erreur
+        # Assure la compatibilité avec l'index existant
+        dim = 384  # Dimension standard pour le modèle all-MiniLM-L6-v2
+        rng = np.random.RandomState(abs(hash(text)) % (2**32))
+        vector = rng.rand(dim).astype("float32")  # Déjà entre 0 et 1
+        logger.warning("Utilisation d'un vecteur aléatoire en fallback")
+        return vector.tolist()
 
 
 def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
@@ -370,7 +397,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
 
     # Récupérer des documents similaires à la question
     docs = retrieve_similar_documents(message + " " + additional_context, k=3)
-    context_text = "\n".join([doc.get("content", "") for doc in docs])
+    context_text = "\n".oin([doc.get("content", "") for doc in docs])
     logger.info("Contexte récupéré via FAISS.")
 
     # Appeler l'API Copilot LLM
@@ -396,7 +423,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
         0,
         {
             "role": "system",
-            "content": "Tu es un assistant qui fournit une assistance technique et tres pédagogue.",
+            "content": "Tu es un assistant spéclialisé dans les GitHub actions et les workflows. Tu es capable de répondre à des questions sur les GitHub actions, les workflows, et d'autres sujets techniques.",
         },
     )
     messages.insert(

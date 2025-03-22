@@ -2,7 +2,6 @@
 Tests unitaires pour le module main.
 """
 
-import json
 import os
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
@@ -16,7 +15,6 @@ from fastapi.testclient import TestClient
 from moto import mock_aws
 
 from app.main import (
-    QueryRequest,
     app,
     call_copilot_llm,
     embed_text,
