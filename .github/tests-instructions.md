@@ -3,6 +3,8 @@
 
 Ce guide résume les bonnes pratiques pour écrire des tests unitaires et d'intégration efficaces en Python en utilisant Pytest. Ces recommandations sont adaptées pour maximiser l'efficacité et la lisibilité des tests.
 
+Exécuter les tests unitaires en utilisant l'outil de test intégré de VSCode.
+
 ---
 
 ## 1. **Structure des Tests**
@@ -22,7 +24,7 @@ Ce guide résume les bonnes pratiques pour écrire des tests unitaires et d'int�
 - **Définir le Scope des Fixtures** :
   - `scope="function"` : Réinitialiser entre chaque test.
   - `scope="session"` : Partager entre plusieurs tests pour éviter de répéter des opérations coûteuses (ex. création de tables).
-  
+
 ### Exemple :
 ```python
 @pytest.fixture(scope="function")

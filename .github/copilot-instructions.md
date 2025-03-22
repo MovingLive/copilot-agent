@@ -53,7 +53,9 @@ Workspace
 ## Python Usage
 
 - Use `now(timezone.utc)` instead of `utcnow` method
-
+- Use lazy % formatting in logging functions
+- Consider explicitly re-raising using 'raise HTTPException(status_code=401, detail='Invalid GitHub token') from e'
+  
 ## FastAPI Usage
 
 - Use lifespan event handlers instead of on_event `Method`
