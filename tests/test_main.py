@@ -11,6 +11,7 @@ import faiss
 import numpy as np
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from moto import mock_aws
 
