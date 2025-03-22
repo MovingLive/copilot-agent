@@ -95,7 +95,9 @@ def load_faiss_index() -> None:
                 )
                 local_faiss_path = f"/tmp/{FAISS_INDEX_FILE}"
                 # Créer un index vide si aucun n'existe
-                empty_index = faiss.IndexFlatL2(128)  # Dimension 128 par défaut
+                # Utiliser la même dimension que le modèle d'embedding
+                empty_index = faiss.IndexFlatL2(384)  # Dimension du modèle all-MiniLM-L6-v2
+
                 faiss.write_index(empty_index, local_faiss_path)
         else:
             # Télécharger l'index depuis S3 vers un chemin temporaire
@@ -199,7 +201,7 @@ def embed_text(text: str) -> List[float]:
         return vector.tolist()
 
 
-def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
+def retrieve_similar_documents(query: str, k: int = 5) -> List[dict]:
     """
     Recherche dans l'index FAISS les k documents les plus proches de la requête.
     Retourne une liste de dictionnaires représentant les documents.
@@ -278,15 +280,23 @@ def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
             if idx >= 0:
                 doc_key = str(idx)
                 if doc_key in document_store:
-                    results.append(document_store[doc_key])
+                    doc = document_store[doc_key]
+                    # Vérifier plusieurs sources possibles du contenu
+                    content = doc.get("content", None)
+                    if content is None and "metadata" in doc:
+                        content = doc["metadata"].get("content", "")
+
+                    if content:
+                        results.append({"content": content})
+                    else:
+                        logger.warning("Document sans contenu trouvé: %s", doc)
                 else:
                     logger.debug("Index non trouvé dans document_store: %s", idx)
-            else:
-                logger.debug("Index invalide ignoré: %s", idx)
 
         if not results:
             logger.warning("No matching documents found for query: %s", query)
 
+        logger.info("Documents récupérés: %s", json.dumps(results, indent=2)[:500])
         return results
 
     except ValueError as ve:
@@ -397,7 +407,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
 
     # Récupérer des documents similaires à la question
     docs = retrieve_similar_documents(message + " " + additional_context, k=3)
-    context_text = "\n".oin([doc.get("content", "") for doc in docs])
+    context_text = "\n".join([doc.get("content", "") for doc in docs])
     logger.info("Contexte récupéré via FAISS.")
 
     # Appeler l'API Copilot LLM

@@ -4,11 +4,7 @@ Every time you choose to apply a rule(s), explicitly state the rule(s) in the ou
 
 ## Project Context
 
-FastApi backend with Vue.js frontend for a sport online compagny. The company offers online courses and training sessions.
-The platform allows :
-
-- participant to register for session (live) or replay thanks to zoom integration
-- coaches to create and manage sessions, replays, and packages.
+GitHub Copilot Extensions who are using RAG (FAISS embeddings) and Copilot LLM to a assist developers in writing code.
 
 ## Code Style and Structure
 
@@ -55,7 +51,7 @@ Workspace
 - Use `now(timezone.utc)` instead of `utcnow` method
 - Use lazy % formatting in logging functions
 - Consider explicitly re-raising using 'raise HTTPException(status_code=401, detail='Invalid GitHub token') from e'
-  
+
 ## FastAPI Usage
 
 - Use lifespan event handlers instead of on_event `Method`

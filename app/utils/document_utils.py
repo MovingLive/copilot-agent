@@ -131,7 +131,7 @@ def read_markdown_files(repo_dir: str) -> list[tuple[str, str]]:
     return documents
 
 
-def segment_text(text: str, max_length: int = 500) -> list[str]:
+def segment_text(text: str, max_length: int = 1000, overlap: int = 100) -> list[str]:
     """
     Segmente le texte en morceaux de longueur maximale max_length.
     Une segmentation simple basée sur les sauts de ligne et la longueur.
@@ -145,14 +145,18 @@ def segment_text(text: str, max_length: int = 500) -> list[str]:
     """
     segments = []
     paragraphs = text.split("\n\n")
+
     for para in paragraphs:
         para = para.strip()
         if not para:
             continue
-        # Si le paragraphe est trop long, le découper en morceaux
+
+        # Si le paragraphe est trop long, découpage avec chevauchement
         if len(para) > max_length:
-            for i in range(0, len(para), max_length):
-                segments.append(para[i : i + max_length])
+            for i in range(0, len(para), max_length - overlap):
+                segment = para[i:i + max_length]
+                if segment:  # Éviter les segments vides
+                    segments.append(segment)
         else:
             segments.append(para)
     return segments
@@ -188,7 +192,7 @@ def process_documents_for_chroma(
 
 
 def process_documents_for_faiss(
-    documents: list[tuple[str, str]], max_length: int = 500
+    documents: list[tuple[str, str]], max_length: int = 1000
 ) -> list[dict]:
     """
     Pour chaque document, segmente le contenu et retourne une liste de dictionnaires contenant
@@ -213,6 +217,7 @@ def process_documents_for_faiss(
                     "original_id": f"{Path(file_path).stem}_{idx}",
                     "file_path": file_path,
                     "segment_index": idx,
+                    "content": segment,  # Stocker le contenu pour faciliter la récupération
                 },
             }
             processed.append(entry)
