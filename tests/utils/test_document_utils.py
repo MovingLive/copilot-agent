@@ -112,11 +112,41 @@ def test_segment_text_long_text() -> None:
 
 
 def test_segment_text_very_long_paragraph() -> None:
+    """
+    Test de segmentation d'un long texte sans espaces.
+    Le texte de test fait 600 caractères et devrait être découpé en segments
+    selon la longueur maximale spécifiée, sans chevauchement.
+    """
     text = "x" * 600  # Crée un texte de 600 caractères
-    segments = segment_text(text, max_length=500)
+    segments = segment_text(text, max_length=500, overlap=0)  # Spécifier explicitement overlap=0
     assert len(segments) == 2
     assert len(segments[0]) == 500
     assert len(segments[1]) == 100
+
+def test_segment_text_with_overlap() -> None:
+    """
+    Test de segmentation d'un long texte avec chevauchement.
+    Texte total : 300 caractères (100A + 100B + 100C)
+    Avec max_length=150 et overlap=50, on attend 3 segments qui se chevauchent.
+    """
+    text = "A" * 100 + "B" * 100 + "C" * 100
+    segments = segment_text(text, max_length=150, overlap=50)
+
+    # On attend 3 segments avec chevauchement
+    assert len(segments) == 3
+
+    # Vérifier la longueur de chaque segment
+    assert all(len(segment) <= 150 for segment in segments)
+
+    # Vérifier le contenu et le chevauchement des segments
+    assert segments[0].startswith("A" * 100)  # Premier segment commence par A
+    assert segments[0].endswith("B" * 50)    # et se termine par 50 B
+
+    assert segments[1].startswith("B" * 50)   # Deuxième segment commence par B
+    assert segments[1].endswith("C" * 50)    # et se termine par C
+
+    assert segments[2].startswith("C" * 50)   # Dernier segment commence par C
+    assert segments[2].endswith("C" * 50)    # et se termine par C
 
 
 # Tests pour process_documents_for_chroma

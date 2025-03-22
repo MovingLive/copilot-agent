@@ -238,6 +238,7 @@ def test_retrieve_similar_documents_empty_index():
 def test_load_faiss_index_local_no_files():
     """
     Teste le chargement de l'index FAISS quand les fichiers n'existent pas.
+    Un index vide doit être créé avec la dimension du modèle all-MiniLM-L6-v2 (384).
     """
     with (
         patch("app.main.is_local_environment", return_value=True),
@@ -247,7 +248,7 @@ def test_load_faiss_index_local_no_files():
         patch("faiss.read_index"),
     ):
         load_faiss_index()
-        mock_index.assert_called_once_with(128)
+        mock_index.assert_called_once_with(384)  # Dimension du modèle all-MiniLM-L6-v2
 
 
 @pytest.mark.asyncio
