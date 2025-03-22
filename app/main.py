@@ -164,21 +164,13 @@ def embed_text(text: str) -> List[float]:
     Remplace-la par ton modèle d'embedding (par exemple SentenceTransformers).
     Ici, on retourne un vecteur aléatoire correspondant à la dimension de l'index.
     """
-    # Règle appliquée: Gestion des erreurs
-    global FAISS_INDEX
-    # Détermine la dimension à utiliser en fonction de l'index FAISS existant
-    dim = 384  # Dimension par défaut
-    if FAISS_INDEX is not None:
-        try:
-            dim = FAISS_INDEX.d  # Utilise la dimension exacte de l'index
-        except AttributeError:
-            logger.warning(
-                "Impossible de déterminer la dimension de l'index FAISS, utilisation de la dimension par défaut %d",
-                dim,
-            )
+    # Dimension fixe de 384 pour garantir la cohérence
+    dim = 384
 
-    np.random.seed(abs(hash(text)) % (2**32))
-    return np.random.rand(dim).tolist()
+    # Utiliser le même seed pour le même texte pour garantir la cohérence
+    rng = np.random.RandomState(abs(hash(text)) % (2**32))
+    vector = rng.rand(dim).astype("float32")
+    return vector.tolist()
 
 
 def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
@@ -361,23 +353,11 @@ def call_copilot_llm(question: str, context_text: str, auth_token: str) -> str:
         ) from e
 
 
-# --- Endpoint FastAPI ---
-@app.get("/", response_model=dict)
-async def root() -> dict:
+async def handle_copilot_query(request: Request) -> StreamingResponse:
     """
-    Point d'entrée principal de l'API.
-    Retourne un message de bienvenue.
-    """
-    return {"message": "Bienvenue dans l'API Copilot LLM!"}
-
-
-@app.post("/")
-async def query_copilot(request: Request) -> StreamingResponse:
-    """
-    Endpoint pour interagir avec l'API Copilot en mode streaming.
+    Handler pour traiter les requêtes à l'API Copilot.
     """
     auth_token = request.headers.get("x-github-token")
-
     if not auth_token:
         logger.error("Token d'authentification manquant dans l'en-tête.")
         raise HTTPException(status_code=401, detail="Missing authentication token")
@@ -389,15 +369,12 @@ async def query_copilot(request: Request) -> StreamingResponse:
 
     additional_context = data.get("copilot_references", "")
 
-    # Récupérer des documents similaires à la question (en combinant la question et le contexte additionnel)
+    # Récupérer des documents similaires à la question
     docs = retrieve_similar_documents(message + " " + additional_context, k=3)
-
-    # Concaténer les contenus des documents récupérés
     context_text = "\n".join([doc.get("content", "") for doc in docs])
     logger.info("Contexte récupéré via FAISS.")
 
-    # Appeler l'API Copilot LLM avec la question et le contexte
-    # Passer le token d'authentification à la fonction
+    # Appeler l'API Copilot LLM
     answer = call_copilot_llm(message, context_text, auth_token)
 
     # Récupérer les informations de l'utilisateur
@@ -431,7 +408,6 @@ async def query_copilot(request: Request) -> StreamingResponse:
         },
     )
 
-    # Ajout du contexte récupéré via FAISS
     if answer:
         messages.insert(
             0,
@@ -450,22 +426,37 @@ async def query_copilot(request: Request) -> StreamingResponse:
 
     async def response_generator():
         async with httpx.AsyncClient() as client:
-            async with (
-                client.stream(
-                    "POST",
-                    COPILOT_API_URL,
-                    headers={
-                        "authorization": f"Bearer {auth_token}",  # En minuscules comme dans l'exemple
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "messages": messages,
-                        "stream": True,
-                    },
-                    timeout=None,
-                ) as response
-            ):
+            async with client.stream(
+                "POST",
+                COPILOT_API_URL,
+                headers={
+                    "authorization": f"Bearer {auth_token}",
+                    "content-type": "application/json",
+                },
+                json={
+                    "messages": messages,
+                    "stream": True,
+                },
+                timeout=None,
+            ) as response:
                 async for chunk in response.aiter_bytes():
                     yield chunk
 
     return StreamingResponse(response_generator(), media_type="application/json")
+
+
+# --- Endpoint FastAPI ---
+@app.get("/", response_model=dict)
+async def root() -> dict:
+    """
+    Point d'entrée principal de l'API.
+    Retourne un message de bienvenue.
+    """
+    return {"message": "Bienvenue dans l'API Copilot LLM!"}
+
+@app.post("/")
+async def query_copilot(request: Request) -> StreamingResponse:
+    """
+    Endpoint pour interagir avec l'API Copilot en mode streaming.
+    """
+    return await handle_copilot_query(request)

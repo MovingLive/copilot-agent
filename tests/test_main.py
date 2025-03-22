@@ -186,15 +186,15 @@ async def test_query_endpoint(test_client, mock_faiss_index, mock_document_store
     """
     Teste l'endpoint principal de l'API pour les requêtes.
     """
-    # Patch directement la fonction query_copilot pour éviter les problèmes d'authentification
-    with patch("app.main.query_copilot", new_callable=AsyncMock) as mock_query:
+    # Patch directement la fonction handle_copilot_query pour éviter les problèmes d'authentification
+    with patch("app.main.handle_copilot_query", new_callable=AsyncMock) as mock_handler:
         # Configurer le mock pour renvoyer une réponse simulée
         mock_stream = AsyncMock()
         async def fake_generator():
             yield b'{"choices": [{"message": {"content": "Test answer"}}]}'
 
         mock_stream.return_value = StreamingResponse(fake_generator())
-        mock_query.return_value = mock_stream.return_value
+        mock_handler.return_value = mock_stream.return_value
 
         # Exécution du test
         response = test_client.post(
@@ -207,7 +207,7 @@ async def test_query_endpoint(test_client, mock_faiss_index, mock_document_store
         )
 
         # Vérifier que le mock a été appelé
-        assert mock_query.called
+        assert mock_handler.called
         # Vérifier que la réponse est celle attendue
         assert response.status_code == 200
 
@@ -263,21 +263,19 @@ async def test_query_endpoint_invalid_request(test_client):
 
 
 @pytest.mark.asyncio
-async def test_query_endpoint_no_context(
-    test_client, mock_faiss_index, mock_document_store
-):
+async def test_query_endpoint_no_context(test_client, mock_faiss_index, mock_document_store):
     """
     Teste l'endpoint principal sans contexte additionnel.
     """
-    # Patch directement la fonction query_copilot pour éviter les problèmes d'authentification
-    with patch("app.main.query_copilot", new_callable=AsyncMock) as mock_query:
+    # Patch directement la fonction handle_copilot_query pour éviter les problèmes d'authentification
+    with patch("app.main.handle_copilot_query", new_callable=AsyncMock) as mock_handler:
         # Configurer le mock pour renvoyer une réponse simulée
         mock_stream = AsyncMock()
         async def fake_generator():
             yield b'{"choices": [{"message": {"content": "Test answer without context"}}]}'
 
         mock_stream.return_value = StreamingResponse(fake_generator())
-        mock_query.return_value = mock_stream.return_value
+        mock_handler.return_value = mock_stream.return_value
 
         # Exécution du test
         response = test_client.post(
@@ -290,8 +288,7 @@ async def test_query_endpoint_no_context(
         )
 
         # Vérifier que le mock a été appelé
-        assert mock_query.called
-        # Vérifier que la réponse est celle attendue
+        assert mock_handler.called
         assert response.status_code == 200
 
 
