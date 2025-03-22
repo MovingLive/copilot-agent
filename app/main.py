@@ -231,13 +231,28 @@ async def query_copilot(request: Request) -> StreamingResponse:
     """
     Endpoint pour interagir avec l'API Copilot en mode streaming.
     """
-    data = await request.json()
-    messages = data.get("messages", [])
     auth_token = request.headers.get("x-github-token")
 
     if not auth_token:
         logger.error("Token d'authentification manquant dans l'en-tête.")
         raise HTTPException(status_code=401, detail="Missing authentication token")
+
+    data = await request.json()
+    messages = data.get("messages", [])
+    message = messages[-1].get("content", "")
+    logger.info("Message reçu: %s", message)
+
+    additional_context = data.get("copilot_references", "")
+
+    # Récupérer des documents similaires à la question (en combinant la question et le contexte additionnel)
+    docs = retrieve_similar_documents(message + " " + additional_context, k=3)
+
+    # Concaténer les contenus des documents récupérés
+    context_text = "\n".join([doc.get("content", "") for doc in docs])
+    logger.info("Contexte récupéré via FAISS.")
+
+    # Appeler l'API Copilot LLM avec la question et le contexte
+    answer = call_copilot_llm(message, context_text)
 
     # Récupérer les informations de l'utilisateur
     async with httpx.AsyncClient() as client:
@@ -273,7 +288,7 @@ async def query_copilot(request: Request) -> StreamingResponse:
         0,
         {
             "role": "system",
-            "content": "Pour chaque réponse, termine par une section 'Le saviez-vous?' qui apporte une information technique pertinente et intéressante en lien avec la réponse donnée. Cette section doit être formatée ainsi : '\n\nLe saviez-vous ? [Information technique]'"
+            "content": "Pour chaque réponse, termine par une section 'Le savais-tu?' qui apporte une information technique pertinente et intéressante en lien avec la réponse donnée. Cette section doit être formatée ainsi : '\n\nLe savais-tu ? [Information technique]'"
         },
     )
 
