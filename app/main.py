@@ -279,9 +279,13 @@ def embed_text(text: str) -> List[float]:
             EMBEDDING_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
 
         # Générer l'embedding
-        embedding = EMBEDDING_MODEL.encode(
-            text, normalize_embeddings=True
-        )  # Normalisation L2 directement
+        embedding = EMBEDDING_MODEL.encode(text, normalize_embeddings=True)
+
+        # Normalisation min-max pour garantir des valeurs entre 0 et 1
+        if embedding.max() != embedding.min():  # Éviter la division par zéro
+            embedding = (embedding - embedding.min()) / (
+                embedding.max() - embedding.min()
+            )
 
         # Log des caractéristiques de l'embedding pour diagnostic
         logger.info(
@@ -298,9 +302,9 @@ def embed_text(text: str) -> List[float]:
         # Fallback en cas d'erreur
         dim = 384  # Dimension standard pour le modèle all-MiniLM-L6-v2
         rng = np.random.RandomState(abs(hash(text)) % (2**32))
-        vector = rng.rand(dim).astype("float32")
-        # Normalisation L2 du vecteur aléatoire
-        vector = vector / np.linalg.norm(vector)
+        vector = rng.rand(dim).astype(
+            "float32"
+        )  # Utiliser rand pour générer des valeurs entre 0 et 1
         logger.warning("Utilisation d'un vecteur aléatoire normalisé en fallback")
         return vector.tolist()
 

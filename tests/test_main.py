@@ -14,12 +14,21 @@ from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from moto import mock_aws
 
+from scripts.update_faiss import FAISS_INDEX_FILE, FAISS_METADATA_FILE
 from app.main import (
     app,
     call_copilot_llm,
     embed_text,
+    generate_query_vector,
+    ensure_compatible_dimensions,
+    search_faiss_index,
+    extract_documents_from_indices,
     load_faiss_index,
     retrieve_similar_documents,
+    get_local_faiss_path,
+    load_and_validate_faiss_index,
+    get_metadata_path,
+    load_and_validate_document_store,
 )
 
 
@@ -51,6 +60,12 @@ def mock_document_store():
         "3": {"id": 4, "content": "Test document 4"},
         "4": {"id": 5, "content": "Test document 5"},
     }
+
+
+@pytest.fixture
+def mock_query_vector():
+    """Fixture pour simuler un vecteur de requête."""
+    return np.random.rand(1, 384).astype("float32")
 
 
 @pytest.fixture(autouse=True)
@@ -93,21 +108,167 @@ def test_embed_text():
     assert embed_text(text) == embedding
 
 
+def test_generate_query_vector():
+    """
+    Teste la génération du vecteur de requête.
+    """
+    with patch("app.main.embed_text", return_value=np.random.rand(384).tolist()):
+        query = "test query"
+        query_vector = generate_query_vector(query)
+
+        # Vérifie le type et la forme du vecteur
+        assert isinstance(query_vector, np.ndarray)
+        assert query_vector.shape[1] == 384
+        assert query_vector.dtype == "float32"
+
+
+def test_ensure_compatible_dimensions(mock_faiss_index, mock_query_vector):
+    """
+    Teste l'ajustement des dimensions du vecteur de requête.
+    """
+    # Test avec des dimensions compatibles
+    compatible_vector = mock_query_vector
+    adjusted_vector = ensure_compatible_dimensions(compatible_vector, mock_faiss_index)
+    assert adjusted_vector.shape[1] == mock_faiss_index.d
+
+    # Test avec des dimensions incompatibles
+    incompatible_vector = np.random.rand(1, 128).astype("float32")  # Dimension différente
+    adjusted_vector = ensure_compatible_dimensions(incompatible_vector, mock_faiss_index)
+    assert adjusted_vector.shape[1] == mock_faiss_index.d
+
+
+def test_search_faiss_index(mock_faiss_index, mock_query_vector):
+    """
+    Teste la recherche dans l'index FAISS.
+    """
+    # Test d'une recherche réussie
+    distances, indices = search_faiss_index(mock_query_vector, mock_faiss_index, k=3)
+
+    assert isinstance(distances, np.ndarray)
+    assert isinstance(indices, np.ndarray)
+    assert distances.shape[0] == 1  # Une seule requête
+    assert indices.shape[0] == 1    # Une seule requête
+    assert indices.shape[1] == 3    # k=3 résultats
+
+    # Test de la gestion des erreurs
+    with patch.object(mock_faiss_index, "search", side_effect=AssertionError("Test error")):
+        with pytest.raises(HTTPException) as exc_info:
+            search_faiss_index(mock_query_vector, mock_faiss_index, k=3)
+
+        assert exc_info.value.status_code == 500
+        assert "Erreur d'assertion lors de la recherche FAISS" in str(exc_info.value.detail)
+
+
+def test_extract_documents_from_indices(mock_document_store):
+    """
+    Teste l'extraction des documents à partir des indices.
+    """
+    indices = np.array([[0, 1, 2]])
+    distances = np.array([[0.1, 0.2, 0.3]])
+
+    docs = extract_documents_from_indices(indices, distances, mock_document_store)
+
+    assert len(docs) == 3
+    assert all(isinstance(doc, dict) for doc in docs)
+    assert all("content" in doc for doc in docs)
+
+    # Test avec un indice inexistant
+    indices = np.array([[0, 99, 2]])  # 99 n'existe pas
+    docs = extract_documents_from_indices(indices, distances, mock_document_store)
+    assert len(docs) == 2  # Seulement 2 documents valides
+
+
+def test_get_local_faiss_path():
+    """
+    Teste la détermination du chemin local pour l'index FAISS.
+    """
+    # Test en environnement local avec fichier existant
+    with patch("app.main.is_local_environment", return_value=True), \
+         patch("os.path.exists", return_value=True):
+        path = get_local_faiss_path()
+        assert path.endswith(FAISS_INDEX_FILE)
+        assert "/output/" in path
+
+    # Test en environnement local sans fichier existant
+    with patch("app.main.is_local_environment", return_value=True), \
+         patch("os.path.exists", return_value=False), \
+         patch("faiss.write_index"):
+        path = get_local_faiss_path()
+        assert path.startswith("/tmp/")
+        assert path.endswith(FAISS_INDEX_FILE)
+
+    # Test en environnement distant (S3)
+    with patch("app.main.is_local_environment", return_value=False), \
+         patch("boto3.client") as mock_boto3:
+        path = get_local_faiss_path()
+        assert path.startswith("/tmp/")
+        assert path.endswith(FAISS_INDEX_FILE)
+        assert mock_boto3.called
+
+
+def test_load_and_validate_faiss_index(mock_faiss_index):
+    """
+    Teste le chargement et la validation de l'index FAISS.
+    """
+    with patch("faiss.read_index", return_value=mock_faiss_index):
+        index = load_and_validate_faiss_index("/path/to/index.faiss")
+        assert index is mock_faiss_index
+        assert index.ntotal == 5  # 5 vecteurs ajoutés dans la fixture
+
+
+def test_get_metadata_path():
+    """
+    Teste la détermination du chemin des métadonnées.
+    """
+    # Test en environnement local avec fichier existant
+    with patch("app.main.is_local_environment", return_value=True), \
+         patch("os.path.exists", return_value=True):
+        path = get_metadata_path()
+        assert path.endswith(FAISS_METADATA_FILE)
+
+    # Test en environnement local sans fichier existant
+    with patch("app.main.is_local_environment", return_value=True), \
+         patch("os.path.exists", return_value=False):
+        with pytest.raises(FileNotFoundError):
+            get_metadata_path()
+
+    # Test en environnement distant (S3)
+    with patch("app.main.is_local_environment", return_value=False), \
+         patch("boto3.client") as mock_boto3:
+        path = get_metadata_path()
+        assert path.startswith("/tmp/")
+        assert path.endswith(FAISS_METADATA_FILE)
+        assert mock_boto3.called
+
+
+def test_load_and_validate_document_store():
+    """
+    Teste le chargement et la validation du document store.
+    """
+    test_data = '{"0": {"id": 1, "content": "test"}}'
+    with patch("builtins.open", mock_open(read_data=test_data)):
+        doc_store = load_and_validate_document_store("/path/to/metadata.json")
+        assert isinstance(doc_store, dict)
+        assert len(doc_store) == 1
+        assert "0" in doc_store
+        assert doc_store["0"]["content"] == "test"
+
+
 def test_load_faiss_index_local(mock_faiss_index):
     """
     Teste le chargement de l'index FAISS en environnement local.
     """
     with (
-        patch("app.main.is_local_environment", return_value=True),
-        patch("faiss.read_index", return_value=mock_faiss_index),
-        patch("builtins.open", mock_open(read_data='[{"id": 1, "content": "test"}]')),
-        patch("os.path.exists", return_value=True),
+        patch("app.main.get_local_faiss_path", return_value="/test/path/index.faiss"),
+        patch("app.main.load_and_validate_faiss_index", return_value=mock_faiss_index),
+        patch("app.main.get_metadata_path", return_value="/test/path/metadata.json"),
+        patch("app.main.load_and_validate_document_store", return_value={"0": {"content": "test"}}),
     ):
         load_faiss_index()
         from app.main import FAISS_INDEX, document_store
 
-        assert FAISS_INDEX is not None
-        assert isinstance(FAISS_INDEX, faiss.IndexFlatL2)
+        assert FAISS_INDEX is mock_faiss_index
+        assert isinstance(document_store, dict)
         assert len(document_store) == 1
 
 
@@ -123,20 +284,15 @@ def test_load_faiss_index_s3():
         CreateBucketConfiguration={"LocationConstraint": "ca-central-1"},
     )
 
+    mock_index = MagicMock()
+    mock_doc_store = {"0": {"id": 1, "content": "test"}}
+
     with (
-        patch("app.main.is_local_environment", return_value=False),
-        patch("faiss.read_index") as mock_read_index,
-        patch("boto3.client") as mock_boto3_client,
-        patch("builtins.open", mock_open(read_data='[{"id": 1, "content": "test"}]')),
+        patch("app.main.get_local_faiss_path", return_value="/tmp/index.faiss"),
+        patch("app.main.load_and_validate_faiss_index", return_value=mock_index),
+        patch("app.main.get_metadata_path", return_value="/tmp/metadata.json"),
+        patch("app.main.load_and_validate_document_store", return_value=mock_doc_store),
     ):
-        # Configure le mock S3 pour simuler le téléchargement
-        mock_s3 = MagicMock()
-        mock_boto3_client.return_value = mock_s3
-
-        # Configure le mock de l'index FAISS
-        mock_index = MagicMock()
-        mock_read_index.return_value = mock_index
-
         # Exécute la fonction
         load_faiss_index()
         from app.main import FAISS_INDEX, document_store
@@ -144,17 +300,24 @@ def test_load_faiss_index_s3():
         # Vérifie que l'index a été chargé
         assert FAISS_INDEX is mock_index
         # Vérifie que le document store a été chargé
-        assert len(document_store) == 1
-        assert document_store[0] == {"id": 1, "content": "test"}
+        assert document_store is mock_doc_store
 
 
-def test_retrieve_similar_documents(mock_faiss_index, mock_document_store):
+def test_retrieve_similar_documents(mock_faiss_index, mock_document_store, mock_query_vector):
     """
     Teste la récupération de documents similaires.
     """
     with (
         patch("app.main.FAISS_INDEX", mock_faiss_index),
         patch("app.main.document_store", mock_document_store),
+        patch("app.main.generate_query_vector", return_value=mock_query_vector),
+        patch("app.main.ensure_compatible_dimensions", return_value=mock_query_vector),
+        patch("app.main.search_faiss_index", return_value=(np.array([[0.1, 0.2, 0.3]]), np.array([[0, 1, 2]]))),
+        patch("app.main.extract_documents_from_indices", return_value=[
+            {"content": "Test document 1"},
+            {"content": "Test document 2"},
+            {"content": "Test document 3"}
+        ]),
     ):
         docs = retrieve_similar_documents("test query", k=3)
 
@@ -172,6 +335,7 @@ def test_call_copilot_llm():
     with patch("requests.post") as mock_post:
         mock_post.return_value.json.return_value = mock_response
         mock_post.return_value.status_code = 200
+        mock_post.return_value.ok = True
 
         answer = call_copilot_llm("Test question", "Test context", "test-auth-token")
 
@@ -241,14 +405,21 @@ def test_load_faiss_index_local_no_files():
     Un index vide doit être créé avec la dimension du modèle all-MiniLM-L6-v2 (384).
     """
     with (
-        patch("app.main.is_local_environment", return_value=True),
-        patch("os.path.exists", return_value=False),
+        patch("app.main.get_local_faiss_path") as mock_get_path,
         patch("faiss.IndexFlatL2") as mock_index,
         patch("faiss.write_index"),
-        patch("faiss.read_index"),
+        patch("app.main.load_and_validate_faiss_index") as mock_load,
+        patch("app.main.get_metadata_path", side_effect=FileNotFoundError("No metadata")),
     ):
+        mock_get_path.return_value = "/tmp/index.faiss"
+        mock_index.return_value = MagicMock()
+        mock_load.return_value = mock_index.return_value
+
         load_faiss_index()
-        mock_index.assert_called_once_with(384)  # Dimension du modèle all-MiniLM-L6-v2
+        from app.main import FAISS_INDEX, document_store
+
+        assert FAISS_INDEX is mock_index.return_value
+        assert document_store == []
 
 
 @pytest.mark.asyncio
@@ -319,19 +490,23 @@ def test_embed_text_consistency():
             assert all(0 <= x <= 1 for x in embedding1)
 
 
+def test_generate_query_vector_empty_query():
+    """
+    Teste la gestion des erreurs avec une requête vide.
+    """
+    with pytest.raises(ValueError) as exc_info:
+        generate_query_vector("")
+    assert "Query cannot be empty" in str(exc_info.value)
+
+
 @mock_aws
 def test_load_faiss_index_s3_error():
     """
     Teste la gestion des erreurs lors du chargement depuis S3.
     """
     with (
-        patch("app.main.is_local_environment", return_value=False),
-        patch("boto3.client") as mock_client,
-        patch("faiss.read_index") as mock_read_index,
+        patch("app.main.get_local_faiss_path", side_effect=Exception("S3 Error")),
     ):
-        mock_client.return_value.download_file.side_effect = Exception("S3 Error")
-        mock_read_index.side_effect = Exception("Failed to read index")
-
         # Vérifie que la fonction gère l'erreur sans crash
         load_faiss_index()
         from app.main import FAISS_INDEX
