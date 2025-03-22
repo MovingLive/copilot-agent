@@ -139,6 +139,7 @@ def segment_text(text: str, max_length: int = 1000, overlap: int = 100) -> list[
     Args:
         text: Texte à segmenter
         max_length: Longueur maximale de chaque segment
+        overlap: Nombre de caractères de chevauchement entre segments
 
     Returns:
         list: Liste des segments de texte
