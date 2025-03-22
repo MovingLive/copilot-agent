@@ -1,17 +1,20 @@
+import asyncio
 import json
 import logging
 import os
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import boto3
 import faiss
+import httpx
 import numpy as np
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from app.utils.export_utils import (
@@ -223,20 +226,73 @@ async def root() -> dict:
     return {"message": "Bienvenue dans l'API Copilot LLM!"}
 
 
-@app.post("/query", response_model=QueryResponse)
-async def query_copilot(request: QueryRequest) -> QueryResponse:
+@app.post("/")
+async def query_copilot(request: Request) -> StreamingResponse:
     """
-    Gère la requête de l'utilisateur et retourne la réponse générée par l'API Copilot LLM.
+    Endpoint pour interagir avec l'API Copilot en mode streaming.
     """
-    question = request.question
-    additional_context = request.context or ""
-    logger.info("Requête reçue : %s", question)
-    # Récupérer des documents similaires à la question (en combinant la question et le contexte additionnel)
-    docs = retrieve_similar_documents(question + " " + additional_context, k=3)
-    # Concaténer les contenus des documents récupérés
-    context_text = "\n".join([doc.get("content", "") for doc in docs])
-    logger.info("Contexte récupéré via FAISS.")
-    # Appeler l'API Copilot LLM avec la question et le contexte
-    answer = call_copilot_llm(question, context_text)
-    logger.info("Réponse générée par l'API Copilot LLM.")
-    return QueryResponse(answer=answer)
+    data = await request.json()
+    messages = data.get("messages", [])
+    auth_token = request.headers.get("x-github-token")
+
+    if not auth_token:
+        logger.error("Token d'authentification manquant dans l'en-tête.")
+        raise HTTPException(status_code=401, detail="Missing authentication token")
+
+    # Récupérer les informations de l'utilisateur
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                "https://api.github.com/user",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
+            response.raise_for_status()
+            user_data = response.json()
+            user_login = user_data.get("login")
+            logger.info("Utilisateur authentifié: %s", user_login)
+        except Exception as e:
+            logger.error("Erreur lors de l'authentification GitHub: %s", e)
+            raise HTTPException(status_code=401, detail="Invalid GitHub token") from e
+
+    # Ajouter les messages système
+    messages.insert(
+        0,
+        {
+            "role": "system",
+            "content": "Tu es un assistant qui fournit une assistance technique et tres pédagogue.",
+        },
+    )
+    messages.insert(
+        0,
+        {
+            "role": "system",
+            "content": f"Commence chaque réponse par le nom de l'utilisateur, qui est @{user_login}",
+        },
+    )
+    messages.insert(
+        0,
+        {
+            "role": "system",
+            "content": "Pour chaque réponse, termine par une section 'Le saviez-vous?' qui apporte une information technique pertinente et intéressante en lien avec la réponse donnée. Cette section doit être formatée ainsi : '\n\nLe saviez-vous ? [Information technique]'"
+        },
+    )
+
+    async def response_generator():
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                COPILOT_API_URL,
+                headers={
+                    "Authorization": f"Bearer {auth_token}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "messages": messages,
+                    "stream": True,
+                },
+                timeout=None,
+            ) as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+
+    return StreamingResponse(response_generator(), media_type="application/json")
