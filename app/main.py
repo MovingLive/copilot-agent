@@ -1,11 +1,10 @@
-import asyncio
 import json
 import logging
 import os
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 import boto3
 import faiss
@@ -453,6 +452,7 @@ async def root() -> dict:
     Retourne un message de bienvenue.
     """
     return {"message": "Bienvenue dans l'API Copilot LLM!"}
+
 
 @app.post("/")
 async def query_copilot(request: Request) -> StreamingResponse:
