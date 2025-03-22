@@ -247,8 +247,12 @@ def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
 
         results = []
         for idx in indices[0]:
-            if idx < len(document_store):
+            # Règle appliquée: Gestion des erreurs
+            # Vérifier que l'index est valide (non -1) et dans les limites du document_store
+            if idx >= 0 and idx < len(document_store):
                 results.append(document_store[idx])
+            else:
+                logger.debug("Index invalide ignoré: %s", idx)
 
         if not results:
             logger.warning("No matching documents found for query: %s", query)
@@ -267,29 +271,77 @@ def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
         ) from e
 
 
-def call_copilot_llm(question: str, context_text: str) -> str:
+def call_copilot_llm(question: str, context_text: str, auth_token: str) -> str:
     """
     Appelle l'API GitHub Copilot LLM en fournissant une question et le contexte récupéré.
     Retourne la réponse générée.
+
+    L'API Copilot nécessite un token d'authentification GitHub au format Bearer.
     """
+    # Règle appliquée: Sécurité - Format d'authentification correct selon la documentation
     headers = {
-        "Authorization": f"Bearer {COPILOT_TOKEN}",
-        "Content-Type": "application/json",
+        "authorization": f"Bearer {auth_token}",  # En minuscules et au format Bearer comme dans l'exemple
+        "content-type": "application/json",
     }
+
+    # Format compatible avec l'API OpenAI comme indiqué dans la documentation
     payload = {
         "messages": [
             {"role": "system", "content": f"Contexte:\n{context_text}"},
             {"role": "user", "content": question},
-        ]
+        ],
     }
+
     try:
+        logger.info("Envoi de la requête à l'API Copilot LLM")
         response = requests.post(
             COPILOT_API_URL, json=payload, headers=headers, timeout=30
         )
+
+        # Log détaillé en cas d'erreur pour faciliter le débogage
+        if not response.ok:
+            logger.error(
+                "Échec de l'appel API Copilot (%d): %s",
+                response.status_code,
+                response.text,
+            )
+
         response.raise_for_status()
         data = response.json()
+
+        if (
+            "choices" not in data
+            or not data["choices"]
+            or "message" not in data["choices"][0]
+        ):
+            logger.error("Format de réponse invalide: %s", data)
+            raise ValueError("Format de réponse inattendu de l'API Copilot")
+
         answer = data["choices"][0]["message"]["content"]
+        logger.info("Réponse reçue de l'API Copilot LLM")
         return answer
+
+    except requests.exceptions.HTTPError as http_err:
+        if http_err.response.status_code == 400:
+            logger.error("Erreur 400 Bad Request: %s", http_err.response.text)
+            raise HTTPException(
+                status_code=400,
+                detail="Format de requête incorrect pour l'API Copilot. Vérifiez la structure de la payload.",
+            ) from http_err
+        elif http_err.response.status_code == 401:
+            logger.error("Erreur 401 Unauthorized: %s", http_err.response.text)
+            raise HTTPException(
+                status_code=401,
+                detail="Token d'authentification Copilot invalide ou expiré.",
+            ) from http_err
+        else:
+            logger.error(
+                "Erreur HTTP lors de l'appel à l'API Copilot LLM : %s", http_err
+            )
+            raise HTTPException(
+                status_code=http_err.response.status_code,
+                detail=f"Erreur lors de l'appel au service Copilot LLM: {http_err.response.text}",
+            ) from http_err
     except Exception as e:
         logger.error("Erreur lors de l'appel à l'API Copilot LLM : %s", e)
         raise HTTPException(
@@ -333,7 +385,8 @@ async def query_copilot(request: Request) -> StreamingResponse:
     logger.info("Contexte récupéré via FAISS.")
 
     # Appeler l'API Copilot LLM avec la question et le contexte
-    answer = call_copilot_llm(message, context_text)
+    # Passer le token d'authentification à la fonction
+    answer = call_copilot_llm(message, context_text, auth_token)
 
     # Récupérer les informations de l'utilisateur
     async with httpx.AsyncClient() as client:
@@ -385,19 +438,21 @@ async def query_copilot(request: Request) -> StreamingResponse:
 
     async def response_generator():
         async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                COPILOT_API_URL,
-                headers={
-                    "Authorization": f"Bearer {auth_token}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "messages": messages,
-                    "stream": True,
-                },
-                timeout=None,
-            ) as response:
+            async with (
+                client.stream(
+                    "POST",
+                    COPILOT_API_URL,
+                    headers={
+                        "authorization": f"Bearer {auth_token}",  # En minuscules comme dans l'exemple
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "messages": messages,
+                        "stream": True,
+                    },
+                    timeout=None,
+                ) as response
+            ):
                 async for chunk in response.aiter_bytes():
                     yield chunk
 
