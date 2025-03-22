@@ -43,7 +43,7 @@ FAISS_INDEX = None
 document_store = []
 
 # --- Logger ---
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("copilot_api")
 
 
@@ -207,7 +207,6 @@ def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
         logger.info("FAISS index dimension: %d", FAISS_INDEX.d)
 
         # Vérification de compatibilité des dimensions
-        # Règle appliquée: Validation et vérifications explicites
         if query_vector.shape[1] != FAISS_INDEX.d:
             logger.error(
                 "Incompatibilité de dimensions: vecteur de requête (%d) != index FAISS (%d)",
@@ -245,12 +244,25 @@ def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
                 status_code=500, detail="Erreur d'assertion lors de la recherche FAISS"
             ) from ae
 
+        # Logs pour déboguer document_store
+        logger.debug("Structure de document_store: %s", type(document_store))
+        logger.debug("Taille de document_store: %d", len(document_store))
+        logger.debug(
+            "Clés disponibles: %s",
+            list(document_store.keys())[:5]
+            if isinstance(document_store, dict)
+            else "Non dict",
+        )
+
         results = []
         for idx in indices[0]:
-            # Règle appliquée: Gestion des erreurs
-            # Vérifier que l'index est valide (non -1) et dans les limites du document_store
-            if idx >= 0 and idx < len(document_store):
-                results.append(document_store[idx])
+            # Accéder au document en utilisant l'index comme clé de chaîne
+            if idx >= 0:
+                doc_key = str(idx)
+                if doc_key in document_store:
+                    results.append(document_store[doc_key])
+                else:
+                    logger.debug("Index non trouvé dans document_store: %s", idx)
             else:
                 logger.debug("Index invalide ignoré: %s", idx)
 
