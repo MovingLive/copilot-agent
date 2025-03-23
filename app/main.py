@@ -397,7 +397,7 @@ def search_faiss_index(query_vector: np.ndarray, faiss_index, k: int) -> tuple:
         if distances.mean() > 100.0:
             logger.warning("Distances vectorielles très élevées, ajustement de k")
             # Récupérer plus de documents pour compenser la faible qualité
-            distances, indices = faiss_index.search(query_vector, k*2)
+            distances, indices = faiss_index.search(query_vector, k * 2)
 
         # Règle appliquée: Python Usage - Utilisation du lazy % formatting dans les logging functions
         logger.info("Indices trouvés: %s", indices[0])
@@ -572,7 +572,7 @@ def call_copilot_llm(question: str, context_text: str, auth_token: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "Tu es un assistant spécialisé qui doit répondre en se basant PRINCIPALEMENT sur les informations fournies dans le contexte. Si le contexte contient une réponse à la question, utilise-la en priorité."
+                "content": "Tu es un assistant spécialisé qui doit répondre en se basant PRINCIPALEMENT sur les informations fournies dans le contexte. Si le contexte contient une réponse à la question, utilise-la en priorité.",
             },
             {"role": "system", "content": f"Contexte:\n{context_text}"},
             {"role": "user", "content": question},
