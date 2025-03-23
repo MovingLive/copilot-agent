@@ -67,7 +67,7 @@ LOCAL_OUTPUT_DIR = os.path.join(
 )
 
 # Paramètre de segmentation des fichiers Markdown
-SEGMENT_MAX_LENGTH = 1000  # Nombre maximal de caractères par segment
+SEGMENT_MAX_LENGTH = 1500  # Nombre maximal de caractères par segment
 
 # --- Configuration du logging ---
 logging.basicConfig(

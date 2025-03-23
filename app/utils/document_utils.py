@@ -145,21 +145,38 @@ def segment_text(text: str, max_length: int = 1000, overlap: int = 100) -> list[
         list: Liste des segments de texte
     """
     segments = []
-    paragraphs = text.split("\n\n")
+    lines = text.split("\n")
 
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
+    current_segment = ""
+    current_title = ""
 
-        # Si le paragraphe est trop long, découpage avec chevauchement
-        if len(para) > max_length:
-            for i in range(0, len(para), max_length - overlap):
-                segment = para[i:i + max_length]
-                if segment:  # Éviter les segments vides
-                    segments.append(segment)
+    for line in lines:
+        # Détection des titres (## ou ###)
+        is_title = line.strip().startswith("##")
+
+        # Si c'est un nouveau titre et qu'on a déjà un segment
+        if is_title and current_segment and len(current_segment) > 10:
+            segments.append(current_segment.strip())
+            current_segment = line + "\n"  # Démarrer un nouveau segment avec ce titre
+            current_title = line
+        # Si c'est un titre et qu'on n'a pas encore de segment
+        elif is_title:
+            current_segment = line + "\n"
+            current_title = line
+        # Si c'est du contenu normal
         else:
-            segments.append(para)
+            # Si le segment actuel devient trop long
+            if len(current_segment) + len(line) > max_length:
+                segments.append(current_segment.strip())
+                # Recommencer avec le titre actuel pour conserver le contexte
+                current_segment = current_title + "\n" + line + "\n"
+            else:
+                current_segment += line + "\n"
+
+    # Ajouter le dernier segment s'il n'est pas vide
+    if current_segment:
+        segments.append(current_segment.strip())
+
     return segments
 
 

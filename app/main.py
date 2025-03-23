@@ -394,10 +394,10 @@ def search_faiss_index(query_vector: np.ndarray, faiss_index, k: int) -> tuple:
             distances.max(),
             distances.mean(),
         )
-        if distances.mean() > 50.0:
-            logger.warning(
-                "Les distances vectorielles sont très élevées, suggérant une faible pertinence"
-            )
+        if distances.mean() > 100.0:
+            logger.warning("Distances vectorielles très élevées, ajustement de k")
+            # Récupérer plus de documents pour compenser la faible qualité
+            distances, indices = faiss_index.search(query_vector, k*2)
 
         # Règle appliquée: Python Usage - Utilisation du lazy % formatting dans les logging functions
         logger.info("Indices trouvés: %s", indices[0])
@@ -570,6 +570,10 @@ def call_copilot_llm(question: str, context_text: str, auth_token: str) -> str:
     # Format compatible avec l'API OpenAI comme indiqué dans la documentation
     payload = {
         "messages": [
+            {
+                "role": "system",
+                "content": "Tu es un assistant spécialisé qui doit répondre en se basant PRINCIPALEMENT sur les informations fournies dans le contexte. Si le contexte contient une réponse à la question, utilise-la en priorité."
+            },
             {"role": "system", "content": f"Contexte:\n{context_text}"},
             {"role": "user", "content": question},
         ],
@@ -649,12 +653,32 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
     additional_context = data.get("copilot_references", "")
 
     # Récupérer des documents similaires à la question
-    docs = retrieve_similar_documents(message + " " + additional_context, k=3)
-    context_text = "\n".join([doc.get("content", "") for doc in docs])
+    docs = retrieve_similar_documents(message + " " + additional_context, k=5)
+    # Améliorer le formatage du contexte pour le LLM
+    context_sections = []
+    for doc in docs:
+        content = doc.get("content", "")
+        if content and len(content) > 10:  # Éviter les segments trop courts
+            context_sections.append(content)
+
+    # Structurer le contexte pour une meilleure utilisation par le LLM
+    context_text = "\n\n".join(context_sections)
+
+    # Instruction explicite pour utiliser le contexte
+    formatted_context = f"""
+        CONTEXTE PERTINENT:
+        {context_text}
+
+        INSTRUCTIONS:
+        - Utilise le contexte ci-dessus pour répondre à la question de l'utilisateur.
+        - Si le contexte contient une réponse directe à la question, base ta réponse dessus.
+        - Structure ta réponse de façon claire et précise.
+        """
+
     logger.info("Contexte récupéré via FAISS.")
 
     # Appeler l'API Copilot LLM
-    answer = call_copilot_llm(message, context_text, auth_token)
+    answer = call_copilot_llm(message, formatted_context, auth_token)
 
     # Récupérer les informations de l'utilisateur
     async with httpx.AsyncClient() as client:
