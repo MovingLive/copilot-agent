@@ -131,12 +131,12 @@ def test_segment_text_with_overlap() -> None:
     """
     text = "## Section A\n" + "A" * 100 + "\n## Section B\n" + "B" * 100 + "\n## Section C\n" + "C" * 100
     segments = segment_text(text, max_length=150, overlap=50)
-    
+
     assert len(segments) >= 2  # Au moins 2 segments dû aux titres
-    
+
     # Vérifier que chaque segment ne dépasse pas la longueur maximale
     assert all(len(segment) <= 150 for segment in segments)
-    
+
     # Vérifier que les segments contiennent les titres de section
     assert any("## Section A" in segment for segment in segments)
     assert any("## Section B" in segment for segment in segments)
