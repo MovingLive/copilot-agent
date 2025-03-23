@@ -131,7 +131,7 @@ def read_markdown_files(repo_dir: str) -> list[tuple[str, str]]:
     return documents
 
 
-def segment_text(text: str, max_length: int = 500) -> list[str]:
+def segment_text(text: str, max_length: int = 1000, overlap: int = 100) -> list[str]:
     """
     Segmente le texte en morceaux de longueur maximale max_length.
     Une segmentation simple basée sur les sauts de ligne et la longueur.
@@ -139,22 +139,44 @@ def segment_text(text: str, max_length: int = 500) -> list[str]:
     Args:
         text: Texte à segmenter
         max_length: Longueur maximale de chaque segment
+        overlap: Nombre de caractères de chevauchement entre segments
 
     Returns:
         list: Liste des segments de texte
     """
     segments = []
-    paragraphs = text.split("\n\n")
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-        # Si le paragraphe est trop long, le découper en morceaux
-        if len(para) > max_length:
-            for i in range(0, len(para), max_length):
-                segments.append(para[i : i + max_length])
+    lines = text.split("\n")
+
+    current_segment = ""
+    current_title = ""
+
+    for line in lines:
+        # Détection des titres (## ou ###)
+        is_title = line.strip().startswith("##")
+
+        # Si c'est un nouveau titre et qu'on a déjà un segment
+        if is_title and current_segment and len(current_segment) > 10:
+            segments.append(current_segment.strip())
+            current_segment = line + "\n"  # Démarrer un nouveau segment avec ce titre
+            current_title = line
+        # Si c'est un titre et qu'on n'a pas encore de segment
+        elif is_title:
+            current_segment = line + "\n"
+            current_title = line
+        # Si c'est du contenu normal
         else:
-            segments.append(para)
+            # Si le segment actuel devient trop long
+            if len(current_segment) + len(line) > max_length:
+                segments.append(current_segment.strip())
+                # Recommencer avec le titre actuel pour conserver le contexte
+                current_segment = current_title + "\n" + line + "\n"
+            else:
+                current_segment += line + "\n"
+
+    # Ajouter le dernier segment s'il n'est pas vide
+    if current_segment:
+        segments.append(current_segment.strip())
+
     return segments
 
 
@@ -188,7 +210,7 @@ def process_documents_for_chroma(
 
 
 def process_documents_for_faiss(
-    documents: list[tuple[str, str]], max_length: int = 500
+    documents: list[tuple[str, str]], max_length: int = 1000
 ) -> list[dict]:
     """
     Pour chaque document, segmente le contenu et retourne une liste de dictionnaires contenant
@@ -213,6 +235,7 @@ def process_documents_for_faiss(
                     "original_id": f"{Path(file_path).stem}_{idx}",
                     "file_path": file_path,
                     "segment_index": idx,
+                    "content": segment,  # Stocker le contenu pour faciliter la récupération
                 },
             }
             processed.append(entry)

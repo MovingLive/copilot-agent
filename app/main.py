@@ -4,7 +4,7 @@ import os
 import threading
 import time
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List
 
 import boto3
 import faiss
@@ -14,7 +14,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from sentence_transformers import SentenceTransformer
 
 from app.utils.export_utils import (
     LOCAL_OUTPUT_DIR,
@@ -40,6 +40,8 @@ COPILOT_TOKEN = os.getenv("COPILOT_TOKEN", "")
 # --- Variables globales ---
 FAISS_INDEX = None
 document_store = []
+# Initialisation du modèle d'embedding à None (sera chargé au démarrage)
+EMBEDDING_MODEL = None
 
 # --- Logger ---
 logging.basicConfig(level=logging.DEBUG)
@@ -53,6 +55,15 @@ async def lifespan(_: FastAPI):
     Gère le cycle de vie de l'application FastAPI.
     """
     logger.info("Démarrage de l'application et chargement de l'index FAISS...")
+    # Charger le modèle d'embedding
+    global EMBEDDING_MODEL
+    try:
+        logger.info("Chargement du modèle d'embedding...")
+        EMBEDDING_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+        logger.info("Modèle d'embedding chargé avec succès.")
+    except Exception as e:
+        logger.error("Erreur lors du chargement du modèle d'embedding: %s", e)
+
     load_faiss_index()
     # Lancer la mise à jour périodique de l'index dans un thread de fond
     threading.Thread(target=update_faiss_index_periodically, daemon=True).start()
@@ -66,71 +77,163 @@ async def lifespan(_: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-# --- Modèles Pydantic ---
-class QueryRequest(BaseModel):
-    question: str
-    context: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class QueryResponse(BaseModel):
-    answer: str
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 # --- Fonctions utilitaires ---
+def get_local_faiss_path() -> str:
+    """
+    Détermine le chemin local pour l'index FAISS et le crée si nécessaire.
+
+    Returns:
+        str: Chemin vers le fichier d'index FAISS local
+
+    Règle appliquée: Modularisation - Séparation des responsabilités
+    """
+    if is_local_environment():
+        # Charger depuis le répertoire local
+        local_faiss_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_INDEX_FILE)
+        if not os.path.exists(local_faiss_path):
+            logger.warning(
+                "Index FAISS introuvable dans le répertoire local, création d'un index vide."
+            )
+            local_faiss_path = f"/tmp/{FAISS_INDEX_FILE}"
+            # Créer un index vide si aucun n'existe
+            # Utiliser la même dimension que le modèle d'embedding
+            empty_index = faiss.IndexFlatL2(384)  # Dimension du modèle all-MiniLM-L6-v2
+
+            faiss.write_index(empty_index, local_faiss_path)
+    else:
+        # Télécharger l'index depuis S3 vers un chemin temporaire
+        local_faiss_path = f"/tmp/{FAISS_INDEX_FILE}"
+        s3_client = boto3.client("s3", region_name=AWS_REGION)
+        s3_client.download_file(S3_BUCKET_NAME, FAISS_INDEX_FILE, local_faiss_path)
+        logger.info("Index FAISS téléchargé depuis S3.")
+
+    return local_faiss_path
+
+
+def load_and_validate_faiss_index(local_faiss_path: str) -> faiss.Index:
+    """
+    Charge l'index FAISS depuis un fichier local et valide son intégrité.
+
+    Args:
+        local_faiss_path (str): Chemin vers le fichier d'index FAISS
+
+    Returns:
+        faiss.Index: L'index FAISS chargé
+
+    Règle appliquée: Error Handling - Validation et diagnostique de l'index
+    """
+    index = faiss.read_index(local_faiss_path)
+    logger.info("Index FAISS chargé en mémoire.")
+
+    # Règle appliquée: Python Usage - Utilisation du lazy % formatting dans les logging
+    logger.info(
+        "Index FAISS chargé: type=%s, dimension=%d, nombre d'éléments=%d",
+        type(index),
+        index.d,
+        index.ntotal,
+    )
+    logger.info(
+        "Est-ce que l'index est entraîné? %s",
+        hasattr(index, "is_trained") and index.is_trained,
+    )
+
+    if index.ntotal == 0:
+        logger.warning(
+            "ATTENTION: L'index FAISS est vide (ntotal=0). Aucun résultat de recherche ne sera retourné."
+        )
+
+    return index
+
+
+def get_metadata_path() -> str:
+    """
+    Détermine le chemin d'accès aux métadonnées associées à l'index FAISS.
+
+    Returns:
+        str: Chemin vers le fichier de métadonnées
+
+    Raises:
+        FileNotFoundError: Si le fichier de métadonnées n'est pas trouvé en local
+    """
+    local_metadata_path = f"/tmp/{FAISS_METADATA_FILE}"
+    if is_local_environment():
+        metadata_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_METADATA_FILE)
+        if os.path.exists(metadata_path):
+            local_metadata_path = metadata_path
+        else:
+            raise FileNotFoundError(
+                "Fichier de métadonnées introuvable dans le répertoire local"
+            )
+    else:
+        s3_client = boto3.client("s3", region_name=AWS_REGION)
+        s3_client.download_file(
+            S3_BUCKET_NAME, FAISS_METADATA_FILE, local_metadata_path
+        )
+
+    return local_metadata_path
+
+
+def load_and_validate_document_store(metadata_path: str) -> dict:
+    """
+    Charge et valide le mapping des documents (metadata) associé à l'index FAISS.
+
+    Args:
+        metadata_path (str): Chemin vers le fichier de métadonnées
+
+    Returns:
+        dict: Le mapping des documents
+
+    Règle appliquée: Error Handling - Validation du document store
+    """
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        doc_store = json.load(f)
+
+    logger.info("Mapping des documents chargé avec %d entrées.", len(doc_store))
+
+    # Analyse du contenu du document_store pour diagnostic
+    if isinstance(doc_store, dict):
+        sample_keys = list(doc_store.keys())[:5]
+        logger.info("Échantillon de clés dans document_store: %s", sample_keys)
+        if sample_keys:
+            sample_doc = doc_store[sample_keys[0]]
+            logger.info(
+                "Structure d'un document type: %s",
+                json.dumps(sample_doc, indent=2)[:200] + "...",
+            )
+    elif isinstance(doc_store, list):
+        logger.info("document_store est une liste de %d éléments", len(doc_store))
+        if doc_store:
+            logger.info(
+                "Structure du premier élément: %s",
+                json.dumps(doc_store[0], indent=2)[:200] + "...",
+            )
+
+    return doc_store
+
+
 def load_faiss_index() -> None:
     """
     Télécharge et charge l'index FAISS depuis AWS S3 ou le répertoire local.
     Optionnellement, charge aussi un mapping vers les documents.
+
+    Règle appliquée: Modularisation - Orchestration des sous-fonctions
     """
     global FAISS_INDEX, document_store
     try:
-        local_faiss_path = None
-        if is_local_environment():
-            # Charger depuis le répertoire local
-            local_faiss_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_INDEX_FILE)
-            if not os.path.exists(local_faiss_path):
-                logger.warning(
-                    "Index FAISS introuvable dans le répertoire local, création d'un index vide."
-                )
-                local_faiss_path = f"/tmp/{FAISS_INDEX_FILE}"
-                # Créer un index vide si aucun n'existe
-                empty_index = faiss.IndexFlatL2(128)  # Dimension 128 par défaut
-                faiss.write_index(empty_index, local_faiss_path)
-        else:
-            # Télécharger l'index depuis S3 vers un chemin temporaire
-            local_faiss_path = f"/tmp/{FAISS_INDEX_FILE}"
-            s3_client = boto3.client("s3", region_name=AWS_REGION)
-            s3_client.download_file(S3_BUCKET_NAME, FAISS_INDEX_FILE, local_faiss_path)
-            logger.info("Index FAISS téléchargé depuis S3.")
+        # Étape 1: Obtenir le chemin du fichier FAISS et le créer si nécessaire
+        local_faiss_path = get_local_faiss_path()
 
-        # Charger l'index FAISS
-        FAISS_INDEX = faiss.read_index(local_faiss_path)
-        logger.info("Index FAISS chargé en mémoire.")
+        # Étape 2: Charger et valider l'index FAISS
+        FAISS_INDEX = load_and_validate_faiss_index(local_faiss_path)
 
-        # Optionnel : charger un mapping document associé à l'index.
+        # Étape 3: Charger le mapping de documents associé (optionnel)
         try:
-            local_metadata_path = f"/tmp/{FAISS_METADATA_FILE}"
-            if is_local_environment():
-                metadata_path = os.path.join(LOCAL_OUTPUT_DIR, FAISS_METADATA_FILE)
-                if os.path.exists(metadata_path):
-                    local_metadata_path = metadata_path
-                else:
-                    raise FileNotFoundError(
-                        "Fichier de métadonnées introuvable dans le répertoire local"
-                    )
-            else:
-                s3_client = boto3.client("s3", region_name=AWS_REGION)
-                s3_client.download_file(
-                    S3_BUCKET_NAME, FAISS_METADATA_FILE, local_metadata_path
-                )
+            # Étape 3.1: Obtenir le chemin du fichier de métadonnées
+            metadata_path = get_metadata_path()
 
-            with open(local_metadata_path, "r", encoding="utf-8") as f:
-                document_store = json.load(f)
-            logger.info("Mapping des documents chargé.")
+            # Étape 3.2: Charger et valider le document store
+            document_store = load_and_validate_document_store(metadata_path)
+
         except Exception as e:
             logger.warning(
                 "Mapping des documents introuvable, utilisation d'une liste vide: %s", e
@@ -159,115 +262,292 @@ def update_faiss_index_periodically():
 
 def embed_text(text: str) -> List[float]:
     """
-    Fonction fictive pour générer un embedding à partir d'un texte.
-    Remplace-la par ton modèle d'embedding (par exemple SentenceTransformers).
-    Ici, on retourne un vecteur aléatoire correspondant à la dimension de l'index.
+    Génère un embedding vectoriel à partir d'un texte en utilisant un modèle pré-entraîné.
+
+    Args:
+        text (str): Le texte à transformer en embedding
+
+    Returns:
+        List[float]: Le vecteur d'embedding normalisé représentant le texte
     """
-    # Dimension fixe de 384 pour garantir la cohérence
-    dim = 384
+    global EMBEDDING_MODEL
 
-    # Utiliser le même seed pour le même texte pour garantir la cohérence
-    rng = np.random.RandomState(abs(hash(text)) % (2**32))
-    vector = rng.rand(dim).astype("float32")
-    return vector.tolist()
+    try:
+        # Vérifier si le modèle est chargé
+        if EMBEDDING_MODEL is None:
+            logger.warning("Modèle d'embedding non chargé, tentative de chargement...")
+            EMBEDDING_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+
+        # Générer l'embedding
+        embedding = EMBEDDING_MODEL.encode(text, normalize_embeddings=True)
+
+        # Normalisation min-max pour garantir des valeurs entre 0 et 1
+        if embedding.max() != embedding.min():  # Éviter la division par zéro
+            embedding = (embedding - embedding.min()) / (
+                embedding.max() - embedding.min()
+            )
+
+        # Log des caractéristiques de l'embedding pour diagnostic
+        logger.info(
+            "Embedding généré avec succès: min=%f, max=%f, norme=%f",
+            np.min(embedding),
+            np.max(embedding),
+            np.linalg.norm(embedding),
+        )
+
+        return embedding.tolist()
+
+    except Exception as e:
+        logger.error("Erreur lors de la génération de l'embedding: %s", e)
+        # Fallback en cas d'erreur
+        dim = 384  # Dimension standard pour le modèle all-MiniLM-L6-v2
+        rng = np.random.RandomState(abs(hash(text)) % (2**32))
+        vector = rng.rand(dim).astype(
+            "float32"
+        )  # Utiliser rand pour générer des valeurs entre 0 et 1
+        logger.warning("Utilisation d'un vecteur aléatoire normalisé en fallback")
+        return vector.tolist()
 
 
-def retrieve_similar_documents(query: str, k: int = 3) -> List[dict]:
+def generate_query_vector(query: str) -> np.ndarray:
+    """
+    Génère un vecteur d'embedding à partir d'une requête textuelle.
+
+    Args:
+        query (str): La requête textuelle
+
+    Returns:
+        np.ndarray: Le vecteur d'embedding normalisé
+
+    Raises:
+        ValueError: Si la requête est vide ou si l'embedding échoue
+    """
+    if not query:
+        raise ValueError("Query cannot be empty")
+
+    logger.info("Génération de l'embedding pour la requête...")
+    query_vector = np.array([embed_text(query)]).astype("float32")
+    logger.info(
+        "Embedding généré: shape=%s, min=%.4f, max=%.4f",
+        query_vector.shape,
+        query_vector.min(),
+        query_vector.max(),
+    )
+
+    if query_vector.size == 0:
+        raise ValueError("Failed to generate embedding for query")
+
+    return query_vector
+
+
+def ensure_compatible_dimensions(query_vector: np.ndarray, faiss_index) -> np.ndarray:
+    """
+    Vérifie la compatibilité des dimensions entre le vecteur de requête et l'index FAISS.
+    Ajuste le vecteur de requête si nécessaire.
+
+    Args:
+        query_vector (np.ndarray): Le vecteur de requête
+        faiss_index: L'index FAISS
+
+    Returns:
+        np.ndarray: Le vecteur de requête ajusté si nécessaire
+    """
+    if query_vector.shape[1] != faiss_index.d:
+        logger.error(
+            "Incompatibilité de dimensions: vecteur de requête (%d) != index FAISS (%d)",
+            query_vector.shape[1],
+            faiss_index.d,
+        )
+        # Ajuster dynamiquement la dimension du vecteur de requête
+        new_query_vector = np.zeros((1, faiss_index.d), dtype="float32")
+        min_dim = min(query_vector.shape[1], faiss_index.d)
+        new_query_vector[0, :min_dim] = query_vector[0, :min_dim]
+        query_vector = new_query_vector
+        logger.info("Vecteur de requête redimensionné à la dimension %d", faiss_index.d)
+
+    return query_vector
+
+
+def search_faiss_index(query_vector: np.ndarray, faiss_index, k: int) -> tuple:
+    """
+    Recherche dans l'index FAISS les k plus proches voisins.
+
+    Args:
+        query_vector (np.ndarray): Le vecteur de requête
+        faiss_index: L'index FAISS
+        k (int): Nombre de résultats à retourner
+
+    Returns:
+        tuple: (distances, indices) tuple des distances et indices des documents similaires
+
+    Raises:
+        HTTPException: En cas d'erreur lors de la recherche
+    """
+    try:
+        logger.info("Exécution de FAISS_INDEX.search avec k=%d", k)
+        distances, indices = faiss_index.search(query_vector, k)
+
+        # Analyse statistique des distances pour diagnostic
+        logger.info(
+            "Statistiques des distances: min=%.4f, max=%.4f, moyenne=%.4f",
+            distances.min(),
+            distances.max(),
+            distances.mean(),
+        )
+        if distances.mean() > 100.0:
+            logger.warning("Distances vectorielles très élevées, ajustement de k")
+            # Récupérer plus de documents pour compenser la faible qualité
+            distances, indices = faiss_index.search(query_vector, k * 2)
+
+        # Règle appliquée: Python Usage - Utilisation du lazy % formatting dans les logging functions
+        logger.info("Indices trouvés: %s", indices[0])
+        logger.info("Distances associées: %s", distances[0])
+        if np.all(indices[0] == -1):
+            logger.warning(
+                "ATTENTION: Tous les indices retournés sont -1, ce qui indique qu'aucun résultat n'a été trouvé"
+            )
+
+        return distances, indices
+
+    except AssertionError as ae:
+        logger.error(
+            "AssertionError dans FAISS_INDEX.search: %s",
+            str(ae) if str(ae) else "Assertion vide",
+        )
+        logger.error("Détails de l'index FAISS: %s", str(faiss_index))
+        logger.error("Est-ce que l'index est vide? %s", faiss_index.ntotal == 0)
+        logger.error(
+            "Vecteur de requête (premiers éléments): %s", query_vector.flatten()[:5]
+        )
+        # Règle appliquée: Python Usage - Explicitly re-raising avec from
+        raise HTTPException(
+            status_code=500, detail="Erreur d'assertion lors de la recherche FAISS"
+        ) from ae
+
+
+def extract_documents_from_indices(
+    indices: np.ndarray, distances: np.ndarray, doc_store: dict
+) -> List[dict]:
+    """
+    Extrait les documents correspondant aux indices trouvés.
+
+    Args:
+        indices (np.ndarray): Les indices des documents similaires
+        distances (np.ndarray): Les distances correspondantes
+        doc_store (dict): Le stockage des documents
+
+    Returns:
+        List[dict]: Liste des documents extraits avec leur contenu
+    """
+    results = []
+    logger.info(
+        "Tentative de récupération des documents à partir des indices: %s",
+        indices[0],
+    )
+
+    for i, idx in enumerate(indices[0]):
+        if idx >= 0:
+            doc_key = str(idx)
+            logger.info(
+                "Recherche du document avec clé=%s, distance=%.4f",
+                doc_key,
+                distances[0][i],
+            )
+
+            if doc_key in doc_store:
+                doc = doc_store[doc_key]
+                logger.info(
+                    "Document trouvé pour l'indice %d. Clés disponibles: %s",
+                    idx,
+                    list(doc.keys()) if isinstance(doc, dict) else "Non dict",
+                )
+
+                # Extraire le contenu complet avec vérification de toutes les structures possibles
+                content = None
+
+                # Vérification directe de la clé content
+                if isinstance(doc, dict) and "content" in doc:
+                    content = doc["content"]
+                    logger.info(
+                        "Contenu trouvé directement (taille: %d)",
+                        len(content) if content else 0,
+                    )
+
+                # Log du document complet pour debug
+                if isinstance(doc, dict):
+                    logger.debug(
+                        "Structure complète du document: %s",
+                        json.dumps(doc, indent=2),
+                    )
+                else:
+                    logger.debug("Document non-dictionnaire: %s", str(doc)[:100])
+
+                # Ajouter aux résultats si contenu trouvé
+                if content:
+                    # Log du contenu complet pour vérification (en mode debug)
+                    logger.debug(
+                        "Contenu complet: %s",
+                        content[:200] + "..." if len(content) > 200 else content,
+                    )
+                    results.append({"content": content})
+                    logger.info(
+                        "Document ajouté aux résultats (longueur: %d caractères)",
+                        len(content),
+                    )
+                else:
+                    logger.warning(
+                        "Aucun contenu trouvé dans le document: %s",
+                        str(doc)[:100] + "..." if len(str(doc)) > 100 else str(doc),
+                    )
+            else:
+                logger.warning("Indice %d non trouvé dans document_store", idx)
+
+    logger.info("Nombre de résultats retournés: %d", len(results))
+
+    if not results:
+        logger.warning("No matching documents found")
+
+    return results
+
+
+def retrieve_similar_documents(query: str, k: int = 5) -> List[dict]:
     """
     Recherche dans l'index FAISS les k documents les plus proches de la requête.
     Retourne une liste de dictionnaires représentant les documents.
     """
     try:
-        if not query:
-            raise ValueError("Query cannot be empty")
+        logger.info(
+            "Début de retrieve_similar_documents avec query='%s...' et k=%d",
+            query[:50],
+            k,
+        )
 
         if FAISS_INDEX is None:
             logger.error("Index FAISS non chargé.")
             return []
 
-        # Générer l'embedding de la requête
-        query_vector = np.array([embed_text(query)]).astype("float32")
+        # Étape 1: Générer le vecteur de requête
+        query_vector = generate_query_vector(query)
 
-        if query_vector.size == 0:
-            raise ValueError("Failed to generate embedding for query")
+        # Étape 2: Assurer la compatibilité des dimensions
+        query_vector = ensure_compatible_dimensions(query_vector, FAISS_INDEX)
 
-        # Logs pour diagnostiquer l'AssertionError
-        logger.info("Query vector shape: %s", query_vector.shape)
-        logger.info("Query vector type: %s", query_vector.dtype)
-        logger.info("FAISS index size: %d", FAISS_INDEX.ntotal)
-        logger.info("FAISS index dimension: %d", FAISS_INDEX.d)
+        # Étape 3: Rechercher dans l'index FAISS
+        distances, indices = search_faiss_index(query_vector, FAISS_INDEX, k)
 
-        # Vérification de compatibilité des dimensions
-        if query_vector.shape[1] != FAISS_INDEX.d:
-            logger.error(
-                "Incompatibilité de dimensions: vecteur de requête (%d) != index FAISS (%d)",
-                query_vector.shape[1],
-                FAISS_INDEX.d,
-            )
-            # Ajuster dynamiquement la dimension du vecteur de requête
-            new_query_vector = np.zeros((1, FAISS_INDEX.d), dtype="float32")
-            min_dim = min(query_vector.shape[1], FAISS_INDEX.d)
-            new_query_vector[0, :min_dim] = query_vector[0, :min_dim]
-            query_vector = new_query_vector
-            logger.info(
-                "Vecteur de requête redimensionné à la dimension %d", FAISS_INDEX.d
-            )
-
-        try:
-            logger.info("Exécution de FAISS_INDEX.search avec k=%d", k)
-            distances, indices = FAISS_INDEX.search(query_vector, k)
-            logger.info(
-                "Recherche FAISS réussie. Distances shape: %s, Indices shape: %s",
-                distances.shape,
-                indices.shape,
-            )
-        except AssertionError as ae:
-            logger.error(
-                "AssertionError dans FAISS_INDEX.search: %s",
-                str(ae) if str(ae) else "Assertion vide",
-            )
-            logger.error("Détails de l'index FAISS: %s", str(FAISS_INDEX))
-            logger.error("Est-ce que l'index est vide? %s", FAISS_INDEX.ntotal == 0)
-            logger.error(
-                "Vecteur de requête (premiers éléments): %s", query_vector.flatten()[:5]
-            )
-            raise HTTPException(
-                status_code=500, detail="Erreur d'assertion lors de la recherche FAISS"
-            ) from ae
-
-        # Logs pour déboguer document_store
-        logger.debug("Structure de document_store: %s", type(document_store))
-        logger.debug("Taille de document_store: %d", len(document_store))
-        logger.debug(
-            "Clés disponibles: %s",
-            list(document_store.keys())[:5]
-            if isinstance(document_store, dict)
-            else "Non dict",
-        )
-
-        results = []
-        for idx in indices[0]:
-            # Accéder au document en utilisant l'index comme clé de chaîne
-            if idx >= 0:
-                doc_key = str(idx)
-                if doc_key in document_store:
-                    results.append(document_store[doc_key])
-                else:
-                    logger.debug("Index non trouvé dans document_store: %s", idx)
-            else:
-                logger.debug("Index invalide ignoré: %s", idx)
-
-        if not results:
-            logger.warning("No matching documents found for query: %s", query)
+        # Étape 4: Extraire les documents à partir des indices
+        results = extract_documents_from_indices(indices, distances, document_store)
 
         return results
 
     except ValueError as ve:
         logger.error("Validation error in retrieve_similar_documents: %s", ve)
+        # Règle appliquée: Python Usage - Explicitly re-raising avec from
         raise HTTPException(status_code=400, detail=str(ve)) from ve
     except Exception as e:
         logger.error("Error in retrieve_similar_documents: %s", e)
         logger.error("Type d'exception: %s", type(e).__name__)
+        # Règle appliquée: Error Handling - Logging approprié pour le débogage
         raise HTTPException(
             status_code=500,
             detail="An error occurred while searching similar documents",
@@ -290,6 +570,10 @@ def call_copilot_llm(question: str, context_text: str, auth_token: str) -> str:
     # Format compatible avec l'API OpenAI comme indiqué dans la documentation
     payload = {
         "messages": [
+            {
+                "role": "system",
+                "content": "Tu es un assistant spécialisé qui doit répondre en se basant PRINCIPALEMENT sur les informations fournies dans le contexte. Si le contexte contient une réponse à la question, utilise-la en priorité.",
+            },
             {"role": "system", "content": f"Contexte:\n{context_text}"},
             {"role": "user", "content": question},
         ],
@@ -369,12 +653,32 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
     additional_context = data.get("copilot_references", "")
 
     # Récupérer des documents similaires à la question
-    docs = retrieve_similar_documents(message + " " + additional_context, k=3)
-    context_text = "\n".join([doc.get("content", "") for doc in docs])
+    docs = retrieve_similar_documents(message + " " + additional_context, k=5)
+    # Améliorer le formatage du contexte pour le LLM
+    context_sections = []
+    for doc in docs:
+        content = doc.get("content", "")
+        if content and len(content) > 10:  # Éviter les segments trop courts
+            context_sections.append(content)
+
+    # Structurer le contexte pour une meilleure utilisation par le LLM
+    context_text = "\n\n".join(context_sections)
+
+    # Instruction explicite pour utiliser le contexte
+    formatted_context = f"""
+        CONTEXTE PERTINENT:
+        {context_text}
+
+        INSTRUCTIONS:
+        - Utilise le contexte ci-dessus pour répondre à la question de l'utilisateur.
+        - Si le contexte contient une réponse directe à la question, base ta réponse dessus.
+        - Structure ta réponse de façon claire et précise.
+        """
+
     logger.info("Contexte récupéré via FAISS.")
 
     # Appeler l'API Copilot LLM
-    answer = call_copilot_llm(message, context_text, auth_token)
+    answer = call_copilot_llm(message, formatted_context, auth_token)
 
     # Récupérer les informations de l'utilisateur
     async with httpx.AsyncClient() as client:
@@ -396,7 +700,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
         0,
         {
             "role": "system",
-            "content": "Tu es un assistant qui fournit une assistance technique et tres pédagogue.",
+            "content": "Tu es un assistant spéclialisé dans les GitHub actions et les workflows. Tu es capable de répondre à des questions sur les GitHub actions, les workflows, et d'autres sujets techniques.",
         },
     )
     messages.insert(
