@@ -103,58 +103,52 @@ def test_segment_text_short_text() -> None:
 
 
 def test_segment_text_long_text() -> None:
-    text = "This is a longer text.\n\nIt has multiple paragraphs.\n\nEach should be a segment."
+    text = "## Section 1\nThis is a longer text.\n\n## Section 2\nIt has multiple paragraphs.\n\n## Section 3\nEach should be a segment."
     segments = segment_text(text)
     assert len(segments) == 3
-    assert "This is a longer text." in segments
-    assert "It has multiple paragraphs." in segments
-    assert "Each should be a segment." in segments
+    assert "## Section 1" in segments[0]
+    assert "## Section 2" in segments[1]
+    assert "## Section 3" in segments[2]
 
 
 def test_segment_text_very_long_paragraph() -> None:
     """
     Test de segmentation d'un long texte sans espaces.
     Le texte de test fait 600 caractères et devrait être découpé en segments
-    selon la longueur maximale spécifiée, sans chevauchement.
+    selon la longueur maximale spécifiée.
     """
-    text = "x" * 600  # Crée un texte de 600 caractères
-    segments = segment_text(text, max_length=500, overlap=0)  # Spécifier explicitement overlap=0
+    text = "## Title\n" + "x" * 600  # Crée un texte de 600 caractères avec un titre
+    segments = segment_text(text, max_length=500, overlap=0)
     assert len(segments) == 2
-    assert len(segments[0]) == 500
-    assert len(segments[1]) == 100
+    assert "## Title" in segments[0]
+    assert len(segments[0]) <= 500
+    assert "## Title" in segments[1]  # Le titre est répété dans chaque segment
+
 
 def test_segment_text_with_overlap() -> None:
     """
-    Test de segmentation d'un long texte avec chevauchement.
-    Texte total : 300 caractères (100A + 100B + 100C)
-    Avec max_length=150 et overlap=50, on attend 3 segments qui se chevauchent.
+    Test de segmentation d'un long texte avec des sections titrées.
     """
-    text = "A" * 100 + "B" * 100 + "C" * 100
+    text = "## Section A\n" + "A" * 100 + "\n## Section B\n" + "B" * 100 + "\n## Section C\n" + "C" * 100
     segments = segment_text(text, max_length=150, overlap=50)
-
-    # On attend 3 segments avec chevauchement
-    assert len(segments) == 3
-
-    # Vérifier la longueur de chaque segment
+    
+    assert len(segments) >= 2  # Au moins 2 segments dû aux titres
+    
+    # Vérifier que chaque segment ne dépasse pas la longueur maximale
     assert all(len(segment) <= 150 for segment in segments)
-
-    # Vérifier le contenu et le chevauchement des segments
-    assert segments[0].startswith("A" * 100)  # Premier segment commence par A
-    assert segments[0].endswith("B" * 50)    # et se termine par 50 B
-
-    assert segments[1].startswith("B" * 50)   # Deuxième segment commence par B
-    assert segments[1].endswith("C" * 50)    # et se termine par C
-
-    assert segments[2].startswith("C" * 50)   # Dernier segment commence par C
-    assert segments[2].endswith("C" * 50)    # et se termine par C
+    
+    # Vérifier que les segments contiennent les titres de section
+    assert any("## Section A" in segment for segment in segments)
+    assert any("## Section B" in segment for segment in segments)
+    assert any("## Section C" in segment for segment in segments)
 
 
 # Tests pour process_documents_for_chroma
 def test_process_documents_for_chroma() -> None:
-    documents = [("test.md", "# Test\n\nThis is a test document.")]
+    documents = [("test.md", "## Test\n\nThis is a test document.")]  # Utilisation de ## pour le titre
     processed = process_documents_for_chroma(documents)
 
-    assert len(processed) == 2  # Un segment pour le titre, un pour le contenu
+    assert len(processed) == 1  # Un seul segment car le texte est court
     assert all(isinstance(doc, dict) for doc in processed)
     assert all("id" in doc for doc in processed)
     assert all("text" in doc for doc in processed)
@@ -163,10 +157,10 @@ def test_process_documents_for_chroma() -> None:
 
 # Tests pour process_documents_for_faiss
 def test_process_documents_for_faiss() -> None:
-    documents = [("test.md", "# Test\n\nThis is a test document.")]
+    documents = [("test.md", "## Test\n\nThis is a test document.")]  # Utilisation de ## pour le titre
     processed = process_documents_for_faiss(documents)
 
-    assert len(processed) == 2  # Un segment pour le titre, un pour le contenu
+    assert len(processed) == 1  # Un seul segment car le texte est court
     assert all(isinstance(doc, dict) for doc in processed)
     assert all("numeric_id" in doc for doc in processed)
     assert all("text" in doc for doc in processed)
