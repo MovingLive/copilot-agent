@@ -57,7 +57,6 @@ def mock_env_vars(monkeypatch):
     """Configure les variables d'environnement pour les tests."""
     monkeypatch.setenv("ENV", "test")
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
-    monkeypatch.setenv("COPILOT_TOKEN", "test_token")
     monkeypatch.setenv("S3_BUCKET_NAME", "test-bucket")
 
     yield

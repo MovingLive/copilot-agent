@@ -64,7 +64,6 @@ class Settings(BaseModel):
     COPILOT_API_URL: str = os.getenv(
         "COPILOT_API_URL", "https://api.githubcopilot.com/chat/completions"
     )
-    COPILOT_TOKEN: str = os.getenv("COPILOT_TOKEN", "")
 
     # Configuration de segmentation
     SEGMENT_MAX_LENGTH: int = int(os.getenv("SEGMENT_MAX_LENGTH", "1000"))
