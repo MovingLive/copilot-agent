@@ -1,5 +1,5 @@
 """
-Tests unitaires pour le module document_utils.
+Tests unitaires pour les utilitaires de traitement de documents.
 """
 
 import os
@@ -8,12 +8,11 @@ from unittest.mock import patch
 
 import pytest
 
-from app.utils.document_utils import (
-    clone_or_update_repo,
+from app.utils.git_utils import clone_or_update_repo
+from app.utils.markdown_utils import read_markdown_files, segment_text
+from app.utils.vector_db_utils import (
     process_documents_for_chroma,
-    process_documents_for_faiss,
-    read_markdown_files,
-    segment_text,
+    process_documents_for_faiss
 )
 
 

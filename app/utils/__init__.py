@@ -1,20 +1,18 @@
-"""
-Package d'utilitaires pour l'application.
+"""Package d'utilitaires pour l'application.
 Centralise les fonctionnalités communes utilisées par différentes parties de l'application.
 """
 
-from app.utils.document_utils import (
-    clone_or_update_repo,
-    process_documents_for_chroma,
-    process_documents_for_faiss,
-    read_markdown_files,
-    segment_text,
-)
 from app.utils.export_utils import (
     copy_to_local_output,
     export_data,
     is_local_environment,
     upload_directory_to_s3,
+)
+from app.utils.git_utils import clone_or_update_repo
+from app.utils.markdown_utils import read_markdown_files, segment_text
+from app.utils.vector_db_utils import (
+    process_documents_for_chroma,
+    process_documents_for_faiss,
 )
 
 __all__ = [
