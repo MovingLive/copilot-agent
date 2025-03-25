@@ -14,4 +14,4 @@ async def root() -> dict:
 @router.get("/health")
 async def health_check() -> dict:
     """Endpoint de vérification de santé."""
-    return {"status": "healthy"}
+    return {"status": "ok"}

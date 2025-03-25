@@ -37,7 +37,7 @@ async def test_handle_copilot_query_success():
         patch("app.services.faiss_service.retrieve_similar_documents", return_value=[
             {"content": "FastAPI est un framework moderne pour Python"}
         ]),
-        patch("app.api.copilot.generate_streaming_response", 
+        patch("app.api.copilot.generate_streaming_response",
               side_effect=mock_generate_streaming_response),
     ):
         async with AsyncClient(app=app, base_url="http://test") as ac:
@@ -90,7 +90,7 @@ async def test_handle_copilot_query_with_context():
             {"content": "FastAPI est un framework moderne"},
             {"content": "Exemple d'utilisation de FastAPI"}
         ]),
-        patch("app.api.copilot.generate_streaming_response", 
+        patch("app.api.copilot.generate_streaming_response",
               side_effect=mock_generate_streaming_response),
     ):
         async with AsyncClient(app=app, base_url="http://test") as ac:
