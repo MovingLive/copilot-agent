@@ -15,9 +15,7 @@ from app.core.config import settings
 from app.services import embedding_service, faiss_service
 
 # Configuration du logging
-logging.basicConfig(
-    level=settings.LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
 logger = logging.getLogger("copilot_api")
 
 

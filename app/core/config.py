@@ -37,6 +37,18 @@ class Settings(BaseModel):
     FAISS_METADATA_FILE: str = os.getenv("FAISS_METADATA_FILE", "metadata.json")
     FAISS_PERSIST_DIR: str = "faiss_index"
 
+    # Configuration temporaire
+    TEMP_FAISS_DIR: str = os.getenv(
+        "TEMP_FAISS_DIR",
+        os.path.join(
+            os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            ),
+            "temp",
+            "faiss_index",
+        ),
+    )
+
     # Configuration GitHub
     REPO_URL: str = os.getenv(
         "REPO_URL", "https://github.com/votre_utilisateur/votre_repo.git"
@@ -70,6 +82,9 @@ class Settings(BaseModel):
     # Constantes pour la recherche de similarité
     MAX_DISTANCE_THRESHOLD: float = 100.0
     TOP_K_RESULTS: int = 5
+
+    # Configuration de logging
+    LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(message)s"
 
 
 # Instance singleton des configurations

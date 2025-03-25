@@ -1,5 +1,4 @@
-"""
-Module utilitaire pour le traitement de documents Markdown.
+"""Module utilitaire pour le traitement de documents Markdown.
 Contient des fonctions pour lire, segmenter et traiter des fichiers Markdown.
 """
 
@@ -14,8 +13,7 @@ from pathlib import Path
 
 # --- Fonctions utilitaires ---
 def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
-    """
-    Clone ou met à jour le dépôt GitHub contenant la documentation.
+    """Clone ou met à jour le dépôt GitHub contenant la documentation.
     Utilise un répertoire temporaire si le répertoire cible n'est pas accessible en écriture.
 
     Args:
@@ -39,31 +37,64 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
         # Tester si on peut écrire dans le répertoire parent
         parent_dir = os.path.dirname(configured_dir)
         if not os.path.exists(parent_dir):
-            os.makedirs(parent_dir, exist_ok=True)
+            try:
+                os.makedirs(parent_dir, exist_ok=True)
+            except OSError as e:
+                if e.errno == 30:  # EROFS - Read-only file system
+                    logging.warning(
+                        "Système de fichiers en lecture seule détecté pour %s. Utilisation d'un répertoire temporaire.",
+                        parent_dir,
+                    )
+                else:
+                    logging.warning(
+                        "Impossible de créer le répertoire parent %s: %s",
+                        parent_dir,
+                        e,
+                    )
+                repo_dir_path = None
 
         # Si le répertoire existe déjà, vérifier qu'on peut y écrire
         if os.path.exists(configured_dir):
-            test_file = os.path.join(configured_dir, ".write_test")
             try:
-                with open(test_file, "w") as f:
+                test_file = os.path.join(configured_dir, ".write_test")
+                with open(test_file, "w", encoding="utf-8") as f:
                     f.write("test")
                 os.remove(test_file)
                 repo_dir_path = configured_dir
-            except (IOError, OSError):
-                logging.warning(
-                    "Le répertoire %s n'est pas accessible en écriture", configured_dir
-                )
+            except OSError as e:
+                if e.errno == 30:  # EROFS - Read-only file system
+                    logging.warning(
+                        "Système de fichiers en lecture seule détecté pour %s. Utilisation d'un répertoire temporaire.",
+                        configured_dir,
+                    )
+                else:
+                    logging.warning(
+                        "Le répertoire %s n'est pas accessible en écriture: %s",
+                        configured_dir,
+                        e,
+                    )
+                repo_dir_path = None
         else:
             # Essayer de créer le répertoire
             try:
                 os.makedirs(configured_dir, exist_ok=True)
                 repo_dir_path = configured_dir
-            except (IOError, OSError) as e:
-                logging.warning(
-                    "Impossible de créer le répertoire %s: %s", configured_dir, e
-                )
-    except Exception as e:
+            except OSError as e:
+                if e.errno == 30:  # EROFS - Read-only file system
+                    logging.warning(
+                        "Système de fichiers en lecture seule détecté pour %s. Utilisation d'un répertoire temporaire.",
+                        configured_dir,
+                    )
+                else:
+                    logging.warning(
+                        "Impossible de créer le répertoire %s: %s",
+                        configured_dir,
+                        e,
+                    )
+                repo_dir_path = None
+    except OSError as e:
         logging.warning("Erreur lors de la vérification des permissions: %s", e)
+        repo_dir_path = None
 
     # Si on n'a pas pu utiliser le répertoire configuré, utiliser un répertoire temporaire
     if repo_dir_path is None:
@@ -81,7 +112,7 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
         )
         # Créer un fichier markdown factice pour les tests
         test_file = os.path.join(repo_dir_path, "test_document.md")
-        with open(test_file, "w") as f:
+        with open(test_file, "w", encoding="utf-8") as f:
             f.write(
                 "# Test Document\n\nCeci est un document de test pour les tests unitaires.\n"
             )
@@ -109,8 +140,7 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
 
 
 def read_markdown_files(repo_dir: str) -> list[tuple[str, str]]:
-    """
-    Lit tous les fichiers Markdown du dépôt et retourne une liste de tuples (chemin, contenu).
+    """Lit tous les fichiers Markdown du dépôt et retourne une liste de tuples (chemin, contenu).
 
     Args:
         repo_dir: Chemin du répertoire contenant les fichiers Markdown
@@ -122,24 +152,22 @@ def read_markdown_files(repo_dir: str) -> list[tuple[str, str]]:
     documents = []
     for file_path in markdown_files:
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
                 documents.append((file_path, content))
-        except (IOError, OSError) as e:
+        except OSError as e:
             logging.warning("Impossible de lire le fichier %s: %s", file_path, e)
     logging.info("Nombre de fichiers Markdown lus: %d", len(documents))
     return documents
 
 
-def segment_text(text: str, max_length: int = 1000, overlap: int = 100) -> list[str]:
-    """
-    Segmente le texte en morceaux de longueur maximale max_length.
+def segment_text(text: str, max_length: int = 1000) -> list[str]:
+    """Segmente le texte en morceaux de longueur maximale max_length.
     Une segmentation simple basée sur les sauts de ligne et la longueur.
 
     Args:
         text: Texte à segmenter
         max_length: Longueur maximale de chaque segment
-        overlap: Nombre de caractères de chevauchement entre segments
 
     Returns:
         list: Liste des segments de texte
@@ -164,14 +192,13 @@ def segment_text(text: str, max_length: int = 1000, overlap: int = 100) -> list[
             current_segment = line + "\n"
             current_title = line
         # Si c'est du contenu normal
+        # Si le segment actuel devient trop long
+        elif len(current_segment) + len(line) > max_length:
+            segments.append(current_segment.strip())
+            # Recommencer avec le titre actuel pour conserver le contexte
+            current_segment = current_title + "\n" + line + "\n"
         else:
-            # Si le segment actuel devient trop long
-            if len(current_segment) + len(line) > max_length:
-                segments.append(current_segment.strip())
-                # Recommencer avec le titre actuel pour conserver le contexte
-                current_segment = current_title + "\n" + line + "\n"
-            else:
-                current_segment += line + "\n"
+            current_segment += line + "\n"
 
     # Ajouter le dernier segment s'il n'est pas vide
     if current_segment:
@@ -183,8 +210,7 @@ def segment_text(text: str, max_length: int = 1000, overlap: int = 100) -> list[
 def process_documents_for_chroma(
     documents: list[tuple[str, str]], max_length: int = 500
 ) -> list[dict]:
-    """
-    Pour chaque document, segmente le contenu et retourne une liste de dictionnaires contenant
+    """Pour chaque document, segmente le contenu et retourne une liste de dictionnaires contenant
     le texte, un identifiant et des métadonnées pour ChromaDB.
 
     Args:
@@ -212,8 +238,7 @@ def process_documents_for_chroma(
 def process_documents_for_faiss(
     documents: list[tuple[str, str]], max_length: int = 1000
 ) -> list[dict]:
-    """
-    Pour chaque document, segmente le contenu et retourne une liste de dictionnaires contenant
+    """Pour chaque document, segmente le contenu et retourne une liste de dictionnaires contenant
     le texte, un identifiant numérique et des métadonnées pour FAISS.
 
     Args:
