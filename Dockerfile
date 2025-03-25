@@ -1,5 +1,5 @@
 # Règle appliquée: Modularisation - Multi-stage build pour optimiser l'image
-FROM python:3.10-slim as builder
+FROM python:3.12-slim as builder
 
 # Installation des dépendances systèmes nécessaires
 RUN apt-get update && apt-get install -y \
@@ -21,7 +21,7 @@ COPY pyproject.toml poetry.lock ./
 RUN poetry install --no-dev --no-interaction
 
 # Stage final
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 # Installation des dépendances minimales
 RUN apt-get update && apt-get install -y \
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copie de l'environnement virtuel depuis le builder
-COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 WORKDIR /app
