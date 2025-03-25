@@ -13,6 +13,7 @@ from httpx import AsyncClient
 from app.core.config import settings
 from app.main import app
 from app.services import faiss_service, embedding_service
+from app.services.embedding_service import EmbeddingService
 
 # Configuration pour les tests
 @pytest.fixture(scope="session")
@@ -38,16 +39,18 @@ async def async_client() -> AsyncGenerator[AsyncClient, None]:
 def initialize_services():
     """Initialise les services nécessaires pour les tests."""
     # Configuration du modèle d'embedding
-    embedding_service.get_embedding_model()
+    _ = EmbeddingService.get_instance().model
 
     # Chargement de l'index FAISS
     index, doc_store = faiss_service.load_index()
-    faiss_service._state.set_state(index, doc_store)
+    faiss_service._state.index = index
+    faiss_service._state.document_store = doc_store
 
     yield
 
     # Nettoyage après les tests
-    faiss_service._state.set_state(None, {})
+    faiss_service._state.index = None
+    faiss_service._state.document_store = {}
 
 @pytest.fixture
 def mock_env_vars(monkeypatch):

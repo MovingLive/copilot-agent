@@ -14,13 +14,13 @@ client = TestClient(app)
 
 def test_root_endpoint():
     """Test de l'endpoint racine."""
-    response = client.get("/")
+    response = client.get("/api")
     assert response.status_code == 200
     assert response.json() == {"message": "Bienvenue dans l'API Copilot LLM!"}
 
 def test_health_check():
     """Test de l'endpoint de santé."""
-    response = client.get("/health")
+    response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json() == {"status": "healthy"}
 
@@ -28,7 +28,7 @@ def test_health_check():
 async def test_copilot_query_missing_token():
     """Test de l'endpoint Copilot sans token d'authentification."""
     response = client.post(
-        "/",
+        "/api",
         json={"messages": [{"role": "user", "content": "test"}]}
     )
     assert response.status_code == 401
@@ -38,7 +38,7 @@ async def test_copilot_query_missing_token():
 async def test_copilot_query_invalid_request():
     """Test de l'endpoint Copilot avec une requête invalide."""
     response = client.post(
-        "/",
+        "/api",
         headers={"x-github-token": "fake_token"},
         json={"messages": []}  # Messages vides
     )
@@ -71,7 +71,7 @@ async def test_copilot_query_success():
         mock_stream.return_value = mock_stream
 
         response = client.post(
-            "/",
+            "/api",
             headers={"x-github-token": "fake_token"},
             json={
                 "messages": [{"role": "user", "content": "test question"}],
@@ -122,7 +122,7 @@ async def test_copilot_query_with_context():
         mock_stream.return_value = mock_stream
 
         response = client.post(
-            "/",
+            "/api",
             headers={"x-github-token": "fake_token"},
             json={
                 "messages": [{"role": "user", "content": "test"}],

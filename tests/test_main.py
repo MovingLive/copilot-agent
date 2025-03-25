@@ -71,7 +71,7 @@ async def test_query_success(client):
         mock_user.return_value = "test_user"
 
         response = client.post(
-            "/",
+            "/api",
             headers={"x-github-token": "test-token"},
             json={
                 "messages": [{"content": "Test question", "role": "user"}],
@@ -84,7 +84,7 @@ async def test_query_success(client):
 @pytest.mark.asyncio
 async def test_query_invalid(client):
     """Teste l'endpoint principal avec une requête invalide."""
-    response = client.post("/", json={})
+    response = client.post("/api", json={})
     assert response.status_code == 401
 
 def test_load_faiss_index_local():
