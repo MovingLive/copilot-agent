@@ -48,9 +48,6 @@ select = [
     "PL",  # pylint
 ]
 
-# Enable isort rules
-isort = true
-
 # Enable pydocstyle rules
 pydocstyle = true
 
