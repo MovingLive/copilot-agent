@@ -3,19 +3,21 @@
 Fournit les fonctionnalités de recherche vectorielle avec FAISS.
 """
 
+import asyncio
 import json
 import logging
-import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import boto3
 import faiss
 import numpy as np
 from botocore.exceptions import BotoCoreError, ClientError
-from fastapi import HTTPException
 
 from app.core.config import settings
 from app.services.embedding_service import generate_query_vector
+from app.utils.export_utils import is_local_environment
 
 logger = logging.getLogger(__name__)
 
@@ -26,29 +28,7 @@ HTTP_500_ERROR = "Erreur interne du service FAISS"
 HTTP_400_ERROR = "Requête invalide"
 
 
-# État du service
-class FAISSState:
-    """Gestion de l'état du service FAISS."""
-
-    def __init__(self):
-        self.index: faiss.Index | None = None
-        self.document_store: dict = {}
-
-    def set_state(self, index: faiss.Index | None, doc_store: dict) -> None:
-        """Met à jour l'état du service."""
-        self.index = index
-        self.document_store = doc_store
-
-    def get_state(self) -> tuple[faiss.Index | None, dict]:
-        """Récupère l'état actuel du service."""
-        return self.index, self.document_store
-
-
-# Instance unique de l'état
-_state = FAISSState()
-
-
-# Exceptions
+# Exceptions personnalisées
 class FAISSServiceError(Exception):
     """Exception de base pour les erreurs du service FAISS."""
 
@@ -61,9 +41,26 @@ class FAISSSyncError(FAISSServiceError):
     """Erreur lors de la synchronisation avec S3."""
 
 
+@dataclass
+class FAISSState:
+    """État du service FAISS."""
+
+    index: faiss.Index | None = None
+    document_store: dict[str, Any] = None
+
+    def __post_init__(self):
+        """Initialise l'état avec des valeurs par défaut."""
+        if self.document_store is None:
+            self.document_store = {}
+
+
+# Instance unique de l'état
+_state = FAISSState()
+
+
 def _get_local_path(filename: str) -> str:
     """Construit le chemin local pour un fichier."""
-    base_dir = settings.LOCAL_OUTPUT_DIR if settings.ENV == "local" else "/tmp"
+    base_dir = settings.LOCAL_OUTPUT_DIR if is_local_environment() else "/tmp"
     return str(Path(base_dir) / filename)
 
 
@@ -97,7 +94,7 @@ def _load_faiss_index(path: str) -> faiss.Index:
         raise FAISSLoadError(f"Impossible de lire l'index FAISS: {str(e)}") from e
 
 
-def _load_document_store(path: str) -> dict:
+def _load_document_store(path: str) -> dict[str, Any]:
     """Charge le document store depuis un fichier JSON."""
     try:
         with open(path, encoding="utf-8") as f:
@@ -110,40 +107,31 @@ def _load_document_store(path: str) -> dict:
         raise FAISSLoadError(f"Impossible de lire le document store: {str(e)}") from e
 
 
-def _handle_load_error(message: str, error: Exception) -> tuple[None, dict]:
-    """Gestion uniforme des erreurs de chargement."""
-    logger.error("%s: %s", message, error)
-    if isinstance(error, FAISSServiceError):
-        raise HTTPException(status_code=500, detail=str(error)) from error
-    raise HTTPException(status_code=500, detail=f"{message}: {str(error)}") from error
-
-
-def load_index() -> tuple[faiss.Index | None, dict]:
-    """Charge l'index FAISS et le document store.
-
-    Returns:
-        tuple: (index FAISS, document store)
-    """
+def load_index() -> tuple[faiss.Index | None, dict[str, Any]]:
+    """Charge l'index FAISS et le document store."""
     try:
         local_faiss_path = _get_local_path(settings.FAISS_INDEX_FILE)
         local_metadata_path = _get_local_path(settings.FAISS_METADATA_FILE)
 
-        if settings.ENV != "local":
+        if not is_local_environment():
             _download_from_s3(local_faiss_path, local_metadata_path)
 
         index = _load_faiss_index(local_faiss_path)
         doc_store = _load_document_store(local_metadata_path)
         return index, doc_store
 
-    except (OSError, json.JSONDecodeError) as e:
-        return _handle_load_error("Erreur lors du chargement des fichiers", e)
-    except (BotoCoreError, ClientError) as e:
-        return _handle_load_error("Erreur lors de la synchronisation S3", e)
-    except FAISSServiceError as e:
-        return _handle_load_error("Erreur du service FAISS", e)
+    except (
+        FAISSServiceError,
+        OSError,
+        json.JSONDecodeError,
+        BotoCoreError,
+        ClientError,
+    ) as e:
+        logger.error("Erreur lors du chargement: %s", e)
+        return None, {}
 
 
-def update_periodically() -> None:
+async def update_periodically() -> None:
     """Met à jour l'index FAISS périodiquement.
 
     Cette fonction est conçue pour être exécutée dans un thread séparé.
@@ -152,28 +140,49 @@ def update_periodically() -> None:
         try:
             logger.info("Mise à jour périodique de l'index FAISS...")
             index, doc_store = load_index()
-            _state.set_state(index, doc_store)
+            _state.index = index
+            _state.document_store = doc_store
             logger.info("Mise à jour de l'index FAISS terminée")
-        except HTTPException as e:
+        except (FAISSServiceError, OSError, json.JSONDecodeError) as e:
             logger.error("Erreur lors de la mise à jour périodique: %s", e)
-        time.sleep(UPDATE_INTERVAL)
+        await asyncio.sleep(UPDATE_INTERVAL)
 
 
 def _prepare_query_vector(query_vector: np.ndarray) -> np.ndarray:
     """Prépare le vecteur de requête avec la bonne dimension."""
-    index, _ = _state.get_state()
-    if index is None:
-        new_index, new_store = load_index()
+    if _state.index is None:
+        raise FAISSLoadError("Index FAISS non initialisé")
+
+    if query_vector.shape[1] != _state.index.d:
+        new_vector = np.zeros((1, _state.index.d), dtype="float32")
+        min_dim = min(query_vector.shape[1], _state.index.d)
+        new_vector[0, :min_dim] = query_vector[0, :min_dim]
+        return new_vector
+
+    return query_vector
 
 
-def _process_search_results(distances: np.ndarray, indices: np.ndarray) -> list[dict]:
+def _search_in_index(query_vector: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+    """Effectue la recherche dans l'index FAISS."""
+    if _state.index is None:
+        raise FAISSLoadError("Index FAISS non disponible")
+    try:
+        return _state.index.search(query_vector, k)
+    except RuntimeError as e:
+        raise FAISSServiceError(f"Erreur lors de la recherche FAISS: {str(e)}") from e
+
+
+def _process_search_results(
+    distances: np.ndarray, indices: np.ndarray
+) -> list[dict[str, Any]]:
     """Traite les résultats de la recherche FAISS."""
     results = []
+
     for i, idx in enumerate(indices[0]):
-        if idx < 0 or str(idx) not in _document_store:
+        if idx < 0 or str(idx) not in _state.document_store:
             continue
 
-        doc = _document_store[str(idx)]
+        doc = _state.document_store[str(idx)]
         if not isinstance(doc, dict) or "content" not in doc:
             continue
 
@@ -190,36 +199,7 @@ def _process_search_results(distances: np.ndarray, indices: np.ndarray) -> list[
     return results
 
 
-def search_similar(query_vector: np.ndarray, k: int = 5) -> list[dict]:
-    """Recherche les k documents les plus similaires.
-
-    Args:
-        query_vector: Vecteur de requête
-        k: Nombre de résultats à retourner
-
-    Returns:
-        list[dict]: Liste des documents similaires avec leurs métadonnées
-
-    Raises:
-        HTTPException: En cas d'erreur
-    """
-    try:
-        prepared_vector = _prepare_query_vector(query_vector)
-        distances, indices = _search_in_index(prepared_vector, k)
-        return _process_search_results(distances, indices)
-
-    except ValueError as ve:
-        raise HTTPException(
-            status_code=400, detail=f"{HTTP_400_ERROR}: {str(ve)}"
-        ) from ve
-    except FAISSServiceError as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-    except Exception as e:
-        logger.error("Erreur lors de la recherche: %s", e)
-        raise HTTPException(status_code=500, detail=HTTP_500_ERROR) from e
-
-
-def retrieve_similar_documents(query: str, k: int = 5) -> list[dict]:
+def retrieve_similar_documents(query: str, k: int = 5) -> list[dict[str, Any]]:
     """Recherche les documents les plus similaires à la requête.
 
     Args:
@@ -227,11 +207,13 @@ def retrieve_similar_documents(query: str, k: int = 5) -> list[dict]:
         k: Nombre de résultats à retourner
 
     Returns:
-        list[dict]: Liste des documents similaires avec leurs métadonnées
+        list[dict[str, Any]]: Liste des documents similaires avec leurs métadonnées
     """
-    if not _index:
-        _index, _document_store = load_index()
-        if not _index:
+    if _state.index is None:
+        index, doc_store = load_index()
+        _state.index = index
+        _state.document_store = doc_store
+        if _state.index is None:
             logger.warning("Index FAISS non disponible")
             return []
 
@@ -241,9 +223,6 @@ def retrieve_similar_documents(query: str, k: int = 5) -> list[dict]:
         distances, indices = _search_in_index(prepared_vector, k)
         return _process_search_results(distances, indices)
 
-    except (ValueError, FAISSServiceError) as e:
+    except (ValueError, FAISSServiceError, RuntimeError) as e:
         logger.warning("Erreur lors de la recherche: %s", e)
-        return []
-    except Exception as e:
-        logger.error("Erreur inattendue lors de la recherche: %s", e)
         return []

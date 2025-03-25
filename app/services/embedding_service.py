@@ -4,6 +4,7 @@ Fournit les fonctionnalités de génération de vecteurs d'embeddings pour la re
 """
 
 import logging
+from typing import Optional
 
 import numpy as np
 import torch
@@ -17,35 +18,64 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 EXPECTED_DIMENSION = 384
 HTTP_500_ERROR = "Erreur interne du service d'embeddings"
 
-# Variables globales du module
-_model: SentenceTransformer | None = None
 
+class EmbeddingService:
+    """Service pour gérer les embeddings avec SentenceTransformer."""
 
-def get_embedding_model() -> SentenceTransformer:
-    """Retourne le modèle d'embedding (lazy loading).
+    _instance: Optional["EmbeddingService"] = None
+    _model: SentenceTransformer | None = None
 
-    Returns:
-        SentenceTransformer: Instance du modèle d'embedding
+    def __new__(cls) -> "EmbeddingService":
+        """Implémentation du pattern singleton."""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
-    Raises:
-        HTTPException: Si le modèle ne peut pas être chargé
-    """
-    global _model
-    if _model is None:
-        try:
-            logger.info("Chargement du modèle d'embedding '%s'...", MODEL_NAME)
-            _model = SentenceTransformer(MODEL_NAME)
-            logger.info(
-                "Modèle chargé avec succès, dimension=%d",
-                _model.get_sentence_embedding_dimension(),
-            )
-        except Exception as e:
-            logger.error("Erreur lors du chargement du modèle: %s", e)
-            raise HTTPException(
-                status_code=500,
-                detail=f"{HTTP_500_ERROR}: impossible de charger le modèle",
-            ) from e
-    return _model
+    @classmethod
+    def get_instance(cls) -> "EmbeddingService":
+        """Retourne l'instance singleton du service.
+
+        Returns:
+            EmbeddingService: Instance unique du service
+        """
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    @property
+    def model(self) -> SentenceTransformer:
+        """Getter pour le modèle d'embedding (lazy loading).
+
+        Returns:
+            SentenceTransformer: Instance du modèle
+
+        Raises:
+            HTTPException: Si le modèle ne peut pas être chargé
+        """
+        if self._model is None:
+            try:
+                logger.info("Chargement du modèle d'embedding '%s'...", MODEL_NAME)
+                self._model = SentenceTransformer(MODEL_NAME)
+                logger.info(
+                    "Modèle chargé avec succès, dimension=%d",
+                    self._model.get_sentence_embedding_dimension(),
+                )
+            except Exception as e:
+                logger.error("Erreur lors du chargement du modèle: %s", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"{HTTP_500_ERROR}: impossible de charger le modèle",
+                ) from e
+        return self._model
+
+    @model.setter
+    def model(self, model: SentenceTransformer) -> None:
+        """Setter pour le modèle d'embedding (utilisé pour les tests).
+
+        Args:
+            model: Instance du modèle à utiliser
+        """
+        self._model = model
 
 
 def validate_input(text: str) -> None:
@@ -93,7 +123,7 @@ def embed_text(text: str) -> list[float]:
     """
     try:
         validate_input(text)
-        model = get_embedding_model()
+        model = EmbeddingService.get_instance().model
 
         with torch.no_grad():
             embedding = model.encode(
@@ -142,7 +172,7 @@ def generate_query_vector(query: str) -> np.ndarray:
     """
     try:
         validate_input(query)
-        model = get_embedding_model()
+        model = EmbeddingService.get_instance().model
 
         with torch.no_grad():
             vector = (

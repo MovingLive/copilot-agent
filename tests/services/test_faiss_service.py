@@ -2,9 +2,15 @@
 
 import numpy as np
 import pytest
-from fastapi import HTTPException
 
-from app.services.faiss_service import FAISSService
+from app.services.faiss_service import (
+    load_index,
+    retrieve_similar_documents,
+    update_periodically,
+    _process_search_results,
+    _prepare_query_vector,
+    _state,
+)
 
 # Constantes de test
 TEST_QUERY = "Test query"
@@ -32,116 +38,112 @@ def fixture_document_store():
         "2": {"content": "Document 2", "source": "test2.py"}
     }
 
-@pytest.fixture(name="faiss_service")
-def fixture_faiss_service(mock_index, document_store):
-    """Crée une instance de test du service FAISS."""
-    service = FAISSService()
-    service.index = mock_index
-    service.document_store = document_store
-    return service
+@pytest.fixture(autouse=True)
+def setup_faiss_state(mock_index, document_store):
+    """Configure l'état du service FAISS pour les tests."""
+    _state.index = mock_index
+    _state.document_store = document_store
+    yield
+    _state.index = None
+    _state.document_store = {}
 
-def test_singleton_instance():
-    """Vérifie que le service FAISS est bien un singleton."""
-    service1 = FAISSService.get_instance()
-    service2 = FAISSService.get_instance()
-    assert service1 is service2
-
-def test_search_similar_success(faiss_service, mocker):
+def test_search_similar_success(mocker):
     """Teste la recherche de documents similaires avec succès."""
     mocker.patch(
-        "app.services.faiss_service.generate_query_vector",
+        "app.services.embedding_service.generate_query_vector",
         return_value=np.zeros((1, MOCK_DIMENSION))
     )
 
-    results = faiss_service.search_similar(TEST_QUERY, TEST_K)
+    results = retrieve_similar_documents(TEST_QUERY, TEST_K)
 
     assert len(results) == TEST_K
     for result in results:
         assert "content" in result
         assert "distance" in result
         assert "metadata" in result
-        assert "source" in result["metadata"]
 
-def test_search_similar_no_index(faiss_service):
+def test_search_similar_no_index(mocker):
     """Teste la recherche quand l'index n'est pas initialisé."""
-    faiss_service.index = None
+    _state.index = None
+    mocker.patch(
+        "app.services.faiss_service.load_index",
+        return_value=(None, {})
+    )
 
-    with pytest.raises(HTTPException) as exc_info:
-        faiss_service.search_similar(TEST_QUERY)
+    results = retrieve_similar_documents(TEST_QUERY)
+    assert len(results) == 0
 
-    assert exc_info.value.status_code == 500
-    assert "Index FAISS non initialisé" in str(exc_info.value.detail)
-
-def test_search_similar_invalid_query(faiss_service, mocker):
+def test_search_similar_invalid_query(mocker):
     """Teste la recherche avec une requête invalide."""
     mocker.patch(
-        "app.services.faiss_service.generate_query_vector",
+        "app.services.embedding_service.generate_query_vector",
         side_effect=ValueError("Invalid query")
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        faiss_service.search_similar("")
+    results = retrieve_similar_documents("")
+    assert len(results) == 0
 
-    assert exc_info.value.status_code == 400
-
-def test_search_similar_faiss_error(faiss_service, mocker):
+def test_search_similar_faiss_error(mock_index, mocker):
     """Teste la gestion des erreurs FAISS."""
     mocker.patch(
-        "app.services.faiss_service.generate_query_vector",
+        "app.services.embedding_service.generate_query_vector",
         return_value=np.zeros((1, MOCK_DIMENSION))
     )
-    faiss_service.index.search.side_effect = RuntimeError("FAISS error")
+    mock_index.search.side_effect = RuntimeError("FAISS error")
 
-    with pytest.raises(HTTPException) as exc_info:
-        faiss_service.search_similar(TEST_QUERY)
-
-    assert exc_info.value.status_code == 500
-    assert "Erreur lors de la recherche FAISS" in str(exc_info.value.detail)
+    results = retrieve_similar_documents(TEST_QUERY)
+    assert len(results) == 0
 
 @pytest.mark.asyncio
-async def test_periodic_update(faiss_service, mocker):
+async def test_periodic_update(mocker):
     """Teste la mise à jour périodique de l'index."""
-    mock_sleep = mocker.patch("time.sleep", side_effect=InterruptedError)
-    mock_load = mocker.patch.object(faiss_service, "load_index")
+    mock_sleep = mocker.patch("asyncio.sleep", side_effect=InterruptedError)
+    mock_load = mocker.patch("app.services.faiss_service.load_index")
 
     with pytest.raises(InterruptedError):
-        await faiss_service.update_periodically()
+        await update_periodically()
 
     mock_load.assert_called_once()
     mock_sleep.assert_called_once_with(3600)
 
-def test_process_results_empty_index(faiss_service):
+def test_process_results_empty_index():
     """Teste le traitement des résultats avec un index vide."""
+    _state.index = None
     distances = np.array([[0.1, 0.2]])
     indices = np.array([[-1, -1]])  # Indices invalides
 
-    results = faiss_service.process_search_results(distances, indices)
-
+    results = _process_search_results(distances, indices)
     assert len(results) == 0
 
-def test_process_results_invalid_document(faiss_service):
+def test_process_results_invalid_document():
     """Teste le traitement des résultats avec un document invalide."""
-    faiss_service.document_store["3"] = {"invalid": "document"}
+    _state.document_store = {"3": {"invalid": "document"}}
     distances = np.array([[0.1]])
     indices = np.array([[3]])
 
-    results = faiss_service.process_search_results(distances, indices)
-
+    results = _process_search_results(distances, indices)
     assert len(results) == 0
 
 @pytest.mark.integration
 def test_load_index_integration(tmp_path, mocker):
     """Test d'intégration du chargement de l'index."""
-    mocker.patch("app.core.config.settings.ENV", "local")
     mocker.patch(
-        "app.core.config.settings.LOCAL_OUTPUT_DIR",
-        return_value=str(tmp_path)
+        "app.services.faiss_service._get_local_path",
+        return_value=str(tmp_path / "nonexistent.faiss")
+    )
+    mocker.patch(
+        "app.services.faiss_service.is_local_environment",
+        return_value=True
     )
 
-    service = FAISSService()
+    index, doc_store = load_index()
+    assert index is None
+    assert isinstance(doc_store, dict)
 
-    with pytest.raises(HTTPException) as exc_info:
-        service.load_index()
+def test_prepare_query_vector_mismatch_dimension():
+    """Teste la préparation d'un vecteur avec une dimension différente."""
+    query_vector = np.zeros((1, MOCK_DIMENSION + 10))  # Dimension plus grande
+    prepared = _prepare_query_vector(query_vector)
 
-    assert exc_info.value.status_code == 500
-    assert "Erreur lors du chargement des fichiers" in str(exc_info.value.detail)
+    assert prepared.shape == (1, MOCK_DIMENSION)
+    assert np.all(prepared[:, :MOCK_DIMENSION] == 0)

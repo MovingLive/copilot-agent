@@ -41,11 +41,13 @@ def initialize_services():
     embedding_service.get_embedding_model()
 
     # Chargement de l'index FAISS
-    faiss_service.load_faiss_index()
+    index, doc_store = faiss_service.load_index()
+    faiss_service._state.set_state(index, doc_store)
 
     yield
 
     # Nettoyage après les tests
+    faiss_service._state.set_state(None, {})
 
 @pytest.fixture
 def mock_env_vars(monkeypatch):
@@ -60,16 +62,15 @@ def mock_env_vars(monkeypatch):
 @pytest.fixture
 def mock_faiss_service(mocker):
     """Mock du service FAISS pour les tests."""
-    mock_service = mocker.patch("app.services.faiss_service.FAISSService")
-    mock_instance = mock_service.return_value
-    mock_instance.search_similar.return_value = [
+    mock_search = mocker.patch("app.services.faiss_service.retrieve_similar_documents")
+    mock_search.return_value = [
         {
             "content": "Test content",
             "distance": 0.5,
             "metadata": {"source": "test.py"}
         }
     ]
-    return mock_instance
+    return mock_search
 
 @pytest.fixture
 def mock_embedding_service(mocker):
