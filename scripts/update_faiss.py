@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-"""
-Fichier : update_faiss.py
+"""Fichier : update_faiss.py.
 
 Ce script réalise les opérations suivantes :
 1. Cloner ou mettre à jour un dépôt GitHub contenant la documentation Markdown.
@@ -19,7 +17,6 @@ import json
 import logging
 import os
 import sys
-import tempfile
 
 import faiss
 import numpy as np
@@ -30,6 +27,7 @@ from sentence_transformers import SentenceTransformer
 sys.path.append(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
+from app.core.config import settings
 from app.utils import (
     clone_or_update_repo,
     export_data,
@@ -41,45 +39,14 @@ from app.utils import (
 load_dotenv()
 
 
-# --- Configuration ---
-
-# Environnement (local, dev, prod)
-ENV = os.getenv("ENV", "local")
-
-# URL du dépôt GitHub contenant la documentation
-REPO_URL = os.getenv("REPO_URL", "https://github.com/votre_utilisateur/votre_repo.git")
-# Dossier local dans lequel le repo sera cloné/actualisé
-REPO_DIR = os.getenv("REPO_DIR", "documentation_repo")
-# Dossier de persistance de l'index FAISS
-FAISS_PERSIST_DIR = os.path.join(tempfile.gettempdir(), "faiss_index")
-# Nom du fichier d'index FAISS
-FAISS_INDEX_FILE = os.getenv("FAISS_INDEX_FILE", "index.faiss")
-# Nom du fichier de mapping des IDs (pour retrouver les métadonnées)
-FAISS_METADATA_FILE = os.getenv("FAISS_METADATA_FILE", "metadata.json")
-
-# Paramètres pour la synchronisation S3
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
-S3_BUCKET_PREFIX = "faiss_index"  # Dossier cible dans le bucket
-
-# Répertoire de sortie local (utilisé si ENV = "local")
-LOCAL_OUTPUT_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "output"
-)
-
-# Paramètre de segmentation des fichiers Markdown
-SEGMENT_MAX_LENGTH = 1500  # Nombre maximal de caractères par segment
-
 # --- Configuration du logging ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
 
 
 def create_faiss_index(
     processed_docs: list, embedding_model: SentenceTransformer
 ) -> tuple[faiss.IndexIDMap, dict]:
-    """
-    Génère les embeddings pour chaque segment, crée un index FAISS et renvoie l'index ainsi que
+    """Génère les embeddings pour chaque segment, crée un index FAISS et renvoie l'index ainsi que
     le mapping des IDs aux métadonnées.
 
     Args:
@@ -114,13 +81,20 @@ def create_faiss_index(
     if embeddings.size == 0:
         raise ValueError("Aucun embedding n'a été généré")
 
-    dimension = embeddings.shape[1] if len(embeddings.shape) > 1 else 128
+    # Utilisation de la dimension du modèle ou 384 par défaut (comme dans embedding_service.py)
+    dimension = embeddings.shape[1] if len(embeddings.shape) > 1 else 384
+    logging.info("Dimension des embeddings: %d", dimension)
 
     # Création de l'index FAISS
     index = faiss.IndexFlatL2(dimension)
     # Envelopper avec un IndexIDMap pour associer nos identifiants numériques
     index_id_map = faiss.IndexIDMap(index)
-    index_id_map.add_with_ids(embeddings, np.array(numeric_ids, dtype=np.int64))
+    # Conversion en numpy arrays et ajout à l'index
+    np_embeddings = np.array(embeddings).astype("float32")
+    np_ids = np.array(numeric_ids, dtype=np.int64)
+    # Correction : utilisation de add_with_ids sans noms de paramètres
+    # pylint: disable=E1120
+    index_id_map.add_with_ids(np_embeddings, np_ids)
     logging.info("Index FAISS créé et rempli.")
 
     return index_id_map, metadata_mapping
@@ -129,8 +103,7 @@ def create_faiss_index(
 def save_faiss_index(
     index: faiss.IndexIDMap, metadata_mapping: dict, directory: str
 ) -> None:
-    """
-    Sauvegarde l'index FAISS et le mapping des IDs dans le répertoire spécifié.
+    """Sauvegarde l'index FAISS et le mapping des IDs dans le répertoire spécifié.
 
     Args:
         index: Index FAISS à sauvegarder
@@ -148,8 +121,8 @@ def save_faiss_index(
         # Convertir les clés en str pour la sérialisation JSON
         str_mapping = {str(k): v for k, v in metadata_mapping.items()}
 
-        index_file_path = os.path.join(directory, FAISS_INDEX_FILE)
-        mapping_file_path = os.path.join(directory, FAISS_METADATA_FILE)
+        index_file_path = os.path.join(directory, settings.FAISS_INDEX_FILE)
+        mapping_file_path = os.path.join(directory, settings.FAISS_METADATA_FILE)
 
         faiss.write_index(index, index_file_path)
         with open(mapping_file_path, "w", encoding="utf-8") as f:
@@ -162,15 +135,14 @@ def save_faiss_index(
 
 def main() -> None:
     """Main function to orchestrate the FAISS index creation and upload process."""
-
     logging.info("Démarrage du script de mise à jour de l'index FAISS...")
 
     # Étape 1 : Cloner ou mettre à jour le dépôt GitHub
-    repo_dir = clone_or_update_repo(REPO_URL, REPO_DIR)
+    repo_dir = clone_or_update_repo(settings.REPO_URL, settings.REPO_DIR)
 
     # Étape 2 : Lire et traiter les fichiers Markdown
     documents = read_markdown_files(repo_dir)
-    processed_docs = process_documents_for_faiss(documents, SEGMENT_MAX_LENGTH)
+    processed_docs = process_documents_for_faiss(documents, settings.SEGMENT_MAX_LENGTH)
 
     # Étape 3 : Charger le modèle d'embedding
     logging.info("Chargement du modèle d'embedding 'all-MiniLM-L6-v2'...")
@@ -180,11 +152,11 @@ def main() -> None:
     index, metadata_mapping = create_faiss_index(processed_docs, model)
 
     # Étape 5 : Sauvegarder l'index FAISS et le mapping localement
-    save_faiss_index(index, metadata_mapping, FAISS_PERSIST_DIR)
+    save_faiss_index(index, metadata_mapping, settings.TEMP_FAISS_DIR)
 
     # Étape 6 : Exporter les données (local ou S3)
     logging.info("Exportation des données...")
-    export_data(FAISS_PERSIST_DIR, S3_BUCKET_PREFIX)
+    export_data(settings.TEMP_FAISS_DIR, settings.S3_BUCKET_PREFIX)
     logging.info("Exportation terminée.")
 
 

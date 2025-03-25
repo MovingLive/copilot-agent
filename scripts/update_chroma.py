@@ -1,7 +1,4 @@
-#!/usr/bin/env python3
 """
-Fichier : update_chroma.py
-
 Ce script réalise les opérations suivantes :
 1. Cloner ou mettre à jour un dépôt GitHub contenant la documentation Markdown.
 2. Lire et segmenter les fichiers Markdown en morceaux de taille raisonnable.
@@ -15,6 +12,7 @@ Dépendances :
     - poetry add sentence-transformers chromadb boto3
 """
 
+import contextlib
 import logging
 import os
 import sys
@@ -73,9 +71,7 @@ logging.basicConfig(
 
 
 def main() -> None:
-    """
-    Fonction principale pour orchestrer la création et l'upload de l'index ChromaDB.
-    """
+    """Fonction principale pour orchestrer la création et l'upload de l'index ChromaDB."""
     # Étape 1 : Cloner ou mettre à jour le dépôt GitHub
     repo_dir = clone_or_update_repo(REPO_URL, REPO_DIR)
 
@@ -98,12 +94,9 @@ def main() -> None:
     sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
         model_name="all-MiniLM-L6-v2"
     )
-
     # Recréer la collection pour avoir des données fraîches
-    try:
+    with contextlib.suppress(ValueError):
         client.delete_collection(COLLECTION_NAME)
-    except ValueError:
-        pass  # La collection n'existe pas encore, on continue
     collection = client.create_collection(
         name=COLLECTION_NAME, embedding_function=sentence_transformer_ef
     )

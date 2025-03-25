@@ -8,27 +8,147 @@ Créer une API RESTful pour interagir avec le modèle d'embedding et la base de 
 
 ### Contexte de l'API
 
-L'API est construite avec FastAPI, un framework moderne et rapide pour la création d'APIs en Python. Elle permet de gérer les requêtes HTTP, d'interagir avec la base de données et de servir les embeddings.
+L'API est construite avec FastAPI. Elle permet de gérer les requêtes HTTP, d'interagir avec la base de données vectorielle pour récupérer les embeddings et de fournir cela en contexte au LLM de GitHub Copilot.
 
 ### Architecture de l'API
 
-L’API REST demandée suit un pipeline RAG (Retrieval-Augmented Generation). Lorsqu’elle reçoit une requête JSON contenant une question de l’utilisateur (ainsi qu’un contexte optionnel provenant de GitHub Copilot Chat), elle procède en deux étapes :
+L’API REST demandée suit un pipeline RAG (Retrieval-Augmented Generation). Lorsqu’elle reçoit une requête JSON contenant une question de l’utilisateur (ainsi qu’un contexte optionnel provenant de GitHub Copilot Chat), elle procède en deux étapes :
 
 1. **Récupération de données pertinentes liées à la question à l’aide d’une base de vecteurs (FAISS) contenant des embeddings.**
+
 2. **Génération de la réponse** en interrogeant le Large Language Model (LLM) de GitHub Copilot en lui fournissant la question enrichie du contexte récupéré. Enfin, la réponse du LLM est renvoyée au client via l’API FastAPI.
 
 ### Toolstrack
 
+- **FastAPI**: Utilisé pour créer l'API RESTful.
 - **Python**: Langage de programmation utilisé pour le développement de l'API.
 - **Poetry**: Outil de gestion des dépendances et de packaging pour Python.
-- **GitHub Actions**: Utilisé pour l'intégration continue et le déploiement continu (CI/CD).
 - **pytest**: Utilisé pour les tests unitaires et d'intégration.
-- **FastAPI**: Utilisé pour créer l'API RESTful.
 - **Pydantic**: Utilisé pour la validation des données et la sérialisation.
 - **uvicorn**: Serveur ASGI pour exécuter l'application FastAPI.
+- **SentenceTransformers**: Utilisé pour générer des embeddings vectoriels à partir de texte.
 - **Chroma DB**: Base de données vectorielle pour le stockage et la recherche d'embeddings.
-- **FAISS**: Librairie de Facebook pour la recherche efficace d'embeddings.
-- **Docker**: Utilisé pour containeriser l'application et faciliter le déploiement.
+- **FAISS**: Base de données vectorielle pour le stockage et la recherche d'embeddings.
+- **Boto3**: Utilisé pour interagir avec AWS S3, bien que cela ne soit pas directement visible dans cet endpoint, mais dans les fonctions auxiliaires.
+- **StreamingResponse**: Utilisé pour envoyer des réponses de streaming à l'utilisateur.
+- **GitHub API**: Utilisée pour authentifier l'utilisateur via le token GitHub (x-github-token) et récupérer des informations sur l'utilisateur.
+- **Copilot LLM API**: API appelée pour générer une réponse basée sur la question et le contexte fourni.
+- **Logging**: Utilisé pour enregistrer des informations sur le traitement des requêtes et le débogage.
+- **GitHub Actions**: Utilisé pour l'intégration continue et le déploiement continu (CI/CD).
+
+### Diagrame de séquence sur demarrage du serveur
+
+```mermaid
+sequenceDiagram
+    participant FastAPI
+    participant Lifespan
+    participant EmbeddingService
+    participant FAISSService
+    participant UpdateThread
+    participant CORSMiddleware
+    participant Routers
+
+    FastAPI->>Lifespan: Démarre le gestionnaire de cycle de vie
+
+    Lifespan->>EmbeddingService: Initialise le singleton
+    EmbeddingService->>EmbeddingService: Charge le modèle SentenceTransformer
+    alt Erreur de chargement du modèle
+        EmbeddingService-->>Lifespan: Erreur d'initialisation
+        Lifespan-->>FastAPI: Propage l'erreur
+    end
+
+    Lifespan->>FAISSService: load_index()
+    FAISSService->>FAISSService: Charge index.faiss et metadata.json
+    alt Erreur de chargement FAISS
+        FAISSService-->>Lifespan: Erreur d'initialisation
+        Lifespan-->>FastAPI: Propage l'erreur
+    end
+
+    Lifespan->>UpdateThread: Démarre thread de mise à jour
+    UpdateThread->>FAISSService: update_periodically() (async)
+
+    FastAPI->>CORSMiddleware: Configure CORS
+    FastAPI->>Routers: Monte les routeurs (health, copilot)
+
+    FastAPI-->>Client: Serveur prêt
+```
+
+Explications :
+
+- **FastAPI**: Démarre l'application et gère le cycle de vie.
+- **Lifespan**: Gestionnaire de cycle de vie qui initialise les services essentiels.
+- **EmbeddingService**: Service singleton qui charge le modèle SentenceTransformer.
+- **FAISSService**: Charge l'index vectoriel et les métadonnées associées.
+- **UpdateThread**: Thread daemon qui met à jour périodiquement l'index FAISS.
+- **CORSMiddleware**: Configure les politiques CORS.
+- **Routers**: Monte les routeurs pour les endpoints health et copilot.
+
+Les erreurs critiques lors de l'initialisation empêchent le démarrage du serveur.
+
+### Diagrame de séquence sur appel de l'API
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant FastAPI
+    participant CopilotRouter
+    participant FAISSService
+    participant EmbeddingService
+    participant CopilotService
+    participant GitHubAPI
+
+    Client->>FastAPI: POST /copilot (x-github-token + messages)
+    FastAPI->>CopilotRouter: handle_copilot_query(request)
+
+    alt Token manquant
+        CopilotRouter-->>Client: 401 Missing authentication token
+    end
+
+    CopilotRouter->>CopilotRouter: Extraire query des messages
+    alt Messages vides
+        CopilotRouter-->>Client: 400 Messages manquants
+    end
+
+    CopilotRouter->>FAISSService: retrieve_similar_documents(query, k=5)
+    FAISSService->>EmbeddingService: generate_query_vector(query)
+    EmbeddingService-->>FAISSService: query_vector
+    FAISSService->>FAISSService: Recherche dans l'index
+    FAISSService-->>CopilotRouter: documents similaires
+
+    CopilotRouter->>CopilotRouter: Formater le contexte
+    CopilotRouter->>GitHubAPI: GET /user (auth_token)
+    alt Authentification réussie
+        GitHubAPI-->>CopilotRouter: user_login
+    else Authentification échouée
+        CopilotRouter-->>Client: 401 Invalid GitHub token
+    end
+
+    CopilotRouter->>CopilotService: format_copilot_messages(query, context, user)
+    CopilotService-->>CopilotRouter: messages formatés
+    CopilotRouter->>CopilotService: generate_streaming_response(messages, token)
+    CopilotRouter->>FastAPI: StreamingResponse
+    FastAPI-->>Client: Réponse en streaming
+```
+
+Explications :
+
+- **Client**: Envoie une requête POST avec un token GitHub et des messages.
+- **FastAPI**: Délègue la requête au router Copilot.
+- **CopilotRouter**:
+  - Vérifie la présence du token et des messages.
+  - Extrait la dernière question des messages.
+  - Gère la recherche de documents similaires via FAISS.
+  - Formate le contexte avec les documents trouvés.
+  - Obtient les informations utilisateur via GitHub.
+  - Formate les messages pour Copilot.
+  - Configure la réponse en streaming.
+- **FAISSService**:
+  - Utilise EmbeddingService pour vectoriser la requête.
+  - Recherche les documents similaires dans l'index.
+- **EmbeddingService**: Génère les vecteurs d'embedding avec SentenceTransformer.
+- **CopilotService**: Formate les messages et gère l'interaction avec l'API Copilot.
+- **GitHubAPI**: Authentifie l'utilisateur et fournit ses informations.
+- **FastAPI**: Retourne la réponse en streaming au client.
 
 ### Installation locale
 
@@ -42,22 +162,12 @@ poetry env activate
 
 - Créer un fichier `.env` à la racine du projet avec les variables d'environnement nécessaires.
 
-```bash
-AWS_REGION=<your_aws_region>
-COPILOT_API_URL=https://api.githubcopilot.com/chat/completions
-COPILOT_TOKEN=<your_github_token>
-ENV=local
-REPO_DIR=<your_local_repo_dir>
-REPO_URL=<your_repo_url>
-S3_BUCKET_NAME=<your_s3_bucket>
-FAISS_METADATA_FILE=id_mapping.json
-FAISS_INDEX_FILE=index.faiss
-```
+> Prendre exempl de `.env.example` et le renommer en `.env`.
 
 - Lancer l'application FastAPI.
 
 Utiliser le launcher de VSCode pour démarrer le serveur.
-Puis accéder à l'API via `http://localhost:8000/docs` pour voir la documentation interactive de l'API.
+Puis accéder à l'API via `http://localhost:8000/` pour confirmer que tout va bien.
 
 ### Vérification de l'état de l'API
 

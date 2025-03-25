@@ -4,27 +4,15 @@ Tests unitaires pour le script update_faiss.py
 
 import json
 import os
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 import faiss
 import numpy as np
 import pytest
 from moto import mock_aws
-from sentence_transformers import SentenceTransformer
 
-from scripts.update_faiss import (
-    FAISS_INDEX_FILE,
-    FAISS_METADATA_FILE,
-    FAISS_PERSIST_DIR,
-    REPO_DIR,
-    REPO_URL,
-    SEGMENT_MAX_LENGTH,
-    create_faiss_index,
-    main,
-    save_faiss_index,
-)
+from app.core.config import settings
+from scripts.update_faiss import create_faiss_index, main, save_faiss_index
 
 
 @pytest.fixture
@@ -101,6 +89,7 @@ def test_save_faiss_index(tmp_path, mock_processed_docs):
     # Créer un index de test
     dimension = 128
     index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
+    # pylint: disable=E1120
     index.add_with_ids(
         np.random.rand(2, dimension).astype("float32"), np.array([1, 2], dtype=np.int64)
     )
@@ -112,11 +101,11 @@ def test_save_faiss_index(tmp_path, mock_processed_docs):
     save_faiss_index(index, mapping, str(tmp_path))
 
     # Vérifier que les fichiers ont été créés
-    assert os.path.exists(os.path.join(tmp_path, FAISS_INDEX_FILE))
-    assert os.path.exists(os.path.join(tmp_path, FAISS_METADATA_FILE))
+    assert os.path.exists(os.path.join(tmp_path, settings.FAISS_INDEX_FILE))
+    assert os.path.exists(os.path.join(tmp_path, settings.FAISS_METADATA_FILE))
 
     # Vérifier le contenu du mapping
-    with open(os.path.join(tmp_path, FAISS_METADATA_FILE), "r") as f:
+    with open(os.path.join(tmp_path, settings.FAISS_METADATA_FILE), "r", encoding="utf-8") as f:
         saved_mapping = json.load(f)
     assert saved_mapping == mapping
 
@@ -147,9 +136,9 @@ def test_main_workflow(
         main()
 
         # Vérifications
-        mock_clone.assert_called_once_with(REPO_URL, REPO_DIR)
+        mock_clone.assert_called_once_with(settings.REPO_URL, settings.REPO_DIR)
         mock_read.assert_called_once_with("test_repo_path")
-        mock_process.assert_called_once_with(mock_documents, SEGMENT_MAX_LENGTH)
+        mock_process.assert_called_once_with(mock_documents, settings.SEGMENT_MAX_LENGTH)
         mock_save.assert_called_once()
         mock_export.assert_called_once()
 
@@ -343,12 +332,12 @@ def test_faiss_search_functionality(mock_processed_docs, mock_embeddings):
 
         # Simuler une recherche
         query_embedding = np.random.rand(1, 128).astype("float32")
-        D, I = index.search(query_embedding, k=2)
+        distances, labels = index.search(x=query_embedding, k=2)
 
         # Vérifications
-        assert len(I[0]) == 2  # Nombre de résultats
-        assert len(D[0]) == 2  # Nombre de distances
-        assert all(i in mapping for i in I[0])  # IDs valides
+        assert len(labels[0]) == 2  # Nombre de résultats
+        assert len(distances[0]) == 2  # Nombre de distances
+        assert all(i in mapping for i in labels[0])  # IDs valides
 
 
 @pytest.mark.parametrize(

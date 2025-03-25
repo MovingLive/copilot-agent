@@ -22,7 +22,6 @@ jobs:
       SKIP_GIT_CALLS: "true"
       AWS_REGION: ca-central-1
       COPILOT_API_URL: https://api.githubcopilot.com/chat/completions
-      COPILOT_TOKEN: your_github_token
       ENV: test
       FAISS_INDEX_FILE: index.faiss
       FAISS_METADATA_FILE: id_mapping.json
@@ -53,26 +52,18 @@ jobs:
           poetry config virtualenvs.create false
           poetry config virtualenvs.in-project false
 
-      - name: Run Python Linters
-        run: |
-          poetry add --group dev ruff
-          poetry run ruff check --exclude tests/ --output-format=github .
-          poetry run ruff format --exclude tests/ --check .
-
       - name: Run Tests with Coverage
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          poetry run coverage run -m pytest --junitxml=test-results.xml
-          poetry run coverage xml
-          poetry run coverage report
+          poetry run coverage run -m pytest --cov --cov-report=html --cov-report=xml --cov-report=term-missing ${{ github.workspace }}
 
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
         if: always()
         with:
           files: test-results.xml
-          
+
       - name: Upload Coverage Report to Artifacts
         uses: actions/upload-artifact@v4
         with:

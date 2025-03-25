@@ -1,5 +1,5 @@
-"""
-Utilitaires pour la gestion des exportations de fichiers.
+"""Utilitaires pour la gestion des exportations de fichiers.
+
 Ce module centralise les fonctions d'exportation locale ou vers S3.
 """
 
@@ -28,8 +28,7 @@ logger = logging.getLogger("export_utils")
 
 
 def is_local_environment() -> bool:
-    """
-    Vérifie si l'environnement courant est local.
+    """Vérifie si l'environnement courant est local.
 
     Returns:
         bool: True si l'environnement est local, False sinon
@@ -38,8 +37,7 @@ def is_local_environment() -> bool:
 
 
 def copy_to_local_output(source_dir: str, destination_dir: str = None) -> None:
-    """
-    Copie les fichiers du répertoire source vers le répertoire de sortie local.
+    """Copie les fichiers du répertoire source vers le répertoire de sortie local.
 
     Args:
         source_dir (str): Répertoire source
@@ -81,8 +79,7 @@ def copy_to_local_output(source_dir: str, destination_dir: str = None) -> None:
 def upload_directory_to_s3(
     directory: str, bucket_name: str = None, prefix: str = ""
 ) -> None:
-    """
-    Upload l'intégralité des fichiers du répertoire 'directory' vers le bucket S3 sous le préfixe 'prefix'.
+    """Upload l'intégralité des fichiers du répertoire 'directory' vers le bucket S3 sous le préfixe 'prefix'.
 
     Args:
         directory (str): Répertoire à uploader
@@ -114,8 +111,7 @@ def upload_directory_to_s3(
 
 
 def export_data(source_dir: str, s3_prefix: str = "", bucket_name: str = None) -> None:
-    """
-    Exporte les données soit vers un répertoire local soit vers S3 selon l'environnement.
+    """Exporte les données soit vers un répertoire local soit vers S3 selon l'environnement.
 
     Args:
         source_dir (str): Répertoire source contenant les données à exporter
