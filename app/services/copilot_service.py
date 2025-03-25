@@ -82,7 +82,7 @@ async def call_copilot_api(messages: list[dict], auth_token: str) -> str:
                 )
 
             response.raise_for_status()
-            data = await response.json()
+            data = response.json()  # Utilisation synchrone pour les tests
 
             if not data.get("choices") or "message" not in data["choices"][0]:
                 raise ValueError("Format de réponse inattendu")
@@ -137,13 +137,14 @@ async def generate_streaming_response(request_data: dict, auth_token: str):
 
     try:
         async with httpx.AsyncClient() as client:
-            async with client.stream(
+            stream = client.stream(
                 "POST",
                 settings.COPILOT_API_URL,
                 headers=headers,
                 json=payload,
                 timeout=None,
-            ) as response:
+            )
+            async with await stream.__aenter__() as response:
                 if not response.is_success:
                     error_detail = await response.aread()
                     logger.error(
@@ -155,6 +156,7 @@ async def generate_streaming_response(request_data: dict, auth_token: str):
 
                 async for chunk in response.aiter_bytes():
                     yield chunk
+
     except httpx.HTTPError as http_err:
         handle_copilot_api_error(http_err)
     except Exception as e:

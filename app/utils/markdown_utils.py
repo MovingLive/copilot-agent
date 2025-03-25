@@ -61,21 +61,20 @@ def segment_text(text: str, max_length: int = 1000) -> list[str]:
         elif len(current_segment) + len(line) > max_length:
             # Ajouter le segment courant
             segments.append(current_segment.strip())
-            # Commencer un nouveau segment avec le titre et la ligne courante
-            new_segment = current_title + "\n" + line + "\n"
-            # Si le nouveau segment est déjà trop long, le diviser
-            if len(new_segment) > max_length:
-                # Ajouter le titre seul
-                segments.append(current_title.strip())
-                # Diviser la ligne en segments de max_length
+            # Diviser la ligne si elle est plus longue que max_length
+            if len(line) > max_length:
                 remaining = line
                 while remaining:
                     segment_length = max_length - len(current_title) - 2  # -2 pour \n
-                    segments.append(current_title + "\n" + remaining[:segment_length])
+                    current_segment = (
+                        current_title + "\n" + remaining[:segment_length]
+                    ).strip()
+                    segments.append(current_segment)
                     remaining = remaining[segment_length:]
                 current_segment = current_title + "\n"
             else:
-                current_segment = new_segment
+                # Commencer un nouveau segment avec le titre et la ligne
+                current_segment = current_title + "\n" + line + "\n"
         else:
             current_segment += line + "\n"
 

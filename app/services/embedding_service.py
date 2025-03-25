@@ -133,7 +133,14 @@ def embed_text(text: str) -> list[float]:
         embedding = embedding.cpu().numpy()
         embedding = normalize_vector(embedding)
 
-        if embedding.shape[1] != EXPECTED_DIMENSION:
+        # Vérifier la dimension selon que c'est un vecteur 1D ou 2D
+        if embedding.ndim == 1:
+            if embedding.shape[0] != EXPECTED_DIMENSION:
+                raise ValueError(
+                    f"Dimension incorrecte: {embedding.shape[0]}, "
+                    f"attendu: {EXPECTED_DIMENSION}"
+                )
+        elif embedding.shape[1] != EXPECTED_DIMENSION:
             raise ValueError(
                 f"Dimension incorrecte: {embedding.shape[1]}, "
                 f"attendu: {EXPECTED_DIMENSION}"
