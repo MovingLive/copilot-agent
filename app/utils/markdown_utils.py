@@ -51,35 +51,41 @@ def segment_text(text: str, max_length: int = 1000) -> list[str]:
     for line in lines:
         # Détection des titres (## ou ###)
         is_title = line.strip().startswith("##")
-
+        
         if is_title:
-            if current_segment and len(current_segment) > 10:
-                segments.append(current_segment.strip())
-            current_segment = line + "\n"
+            # Si on a un segment en cours, on l'ajoute
+            if current_segment:
+                segments.append(current_segment.rstrip())
             current_title = line
-        # Si l'ajout de la ligne dépasse max_length
-        elif len(current_segment) + len(line) > max_length:
-            # Ajouter le segment courant
-            segments.append(current_segment.strip())
-            # Diviser la ligne si elle est plus longue que max_length
-            if len(line) > max_length:
-                remaining = line
-                while remaining:
-                    segment_length = max_length - len(current_title) - 2  # -2 pour \n
-                    current_segment = (
-                        current_title + "\n" + remaining[:segment_length]
-                    ).strip()
-                    segments.append(current_segment)
-                    remaining = remaining[segment_length:]
-                current_segment = current_title + "\n"
-            else:
-                # Commencer un nouveau segment avec le titre et la ligne
-                current_segment = current_title + "\n" + line + "\n"
+            current_segment = current_title + "\n"
         else:
-            current_segment += line + "\n"
+            # Gérer les lignes vides
+            if not line.strip():
+                if len(current_segment) + 1 <= max_length:
+                    current_segment += "\n"
+                continue
+
+            # Si la ligne est trop longue, on la divise
+            while line:
+                available_space = max_length - len(current_segment)
+                if available_space <= 0:
+                    # Le segment courant est plein, on l'ajoute et on en commence un nouveau
+                    segments.append(current_segment.rstrip())
+                    current_segment = current_title + "\n"
+                    available_space = max_length - len(current_segment)
+
+                # On prend autant de caractères que possible
+                chunk = line[:available_space]
+                current_segment += chunk
+                line = line[available_space:]  # Le reste pour la prochaine itération
+                
+                if line:  # S'il reste du texte à traiter
+                    current_segment = current_segment.rstrip() + "\n"
+
+            current_segment = current_segment.rstrip() + "\n"
 
     # Ajouter le dernier segment s'il n'est pas vide
-    if current_segment and len(current_segment) > 10:
-        segments.append(current_segment.strip())
+    if current_segment:
+        segments.append(current_segment.rstrip())
 
     return segments

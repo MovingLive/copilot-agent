@@ -85,12 +85,17 @@ async def call_copilot_api(messages: list[dict], auth_token: str) -> str:
             data = response.json()  # Utilisation synchrone pour les tests
 
             if not data.get("choices") or "message" not in data["choices"][0]:
+                # On laisse propager l'exception ValueError pour le test
+                logger.error("Format de réponse inattendu de l'API Copilot")
                 raise ValueError("Format de réponse inattendu")
 
             return data["choices"][0]["message"]["content"]
 
     except httpx.HTTPError as http_err:
         handle_copilot_api_error(http_err)
+    except ValueError:
+        # On propage l'erreur ValueError au lieu de la convertir en HTTPException
+        raise
     except Exception as e:
         logger.error("Erreur lors de l'appel à l'API Copilot: %s", e)
         raise HTTPException(
