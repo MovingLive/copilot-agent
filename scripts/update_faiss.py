@@ -92,6 +92,7 @@ def create_faiss_index(
     np_embeddings = np.array(embeddings).astype("float32")
     np_ids = np.array(numeric_ids, dtype=np.int64)
     # Correction : utilisation de add_with_ids sans noms de paramètres
+    # pylint: disable=E1120
     index_id_map.add_with_ids(np_embeddings, np_ids)
     logging.info("Index FAISS créé et rempli.")
 
