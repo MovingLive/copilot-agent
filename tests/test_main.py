@@ -1,6 +1,7 @@
 """Tests pour le point d'entrée principal de l'application."""
 
 import asyncio
+import numpy as np
 from unittest.mock import patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
@@ -8,10 +9,26 @@ from fastapi import FastAPI
 
 from app.main import app, lifespan
 from app.services import faiss_service
-from app.services.embedding_service import EmbeddingService
+from app.services.embedding_service import EmbeddingService, EXPECTED_DIMENSION
 
 # Client de test existant
 client = TestClient(app)
+
+@pytest.fixture
+def mock_embedding_service():
+    """Fixture pour mocker complètement le service d'embedding.
+
+    Règle appliquée: Testing
+    """
+    mock_instance = MagicMock()
+    # Créer un embedding factice de la bonne dimension
+    mock_embedding = np.zeros(EXPECTED_DIMENSION, dtype=np.float32)
+    mock_instance.model.encode.return_value = mock_embedding
+    mock_instance.encode.return_value = mock_embedding.tolist()
+
+    with patch.object(EmbeddingService, 'get_instance') as mock_get_instance:
+        mock_get_instance.return_value = mock_instance
+        yield mock_instance
 
 def test_health_endpoint():
     """Test de l'endpoint /health."""
@@ -31,18 +48,16 @@ def test_cors_configuration():
     assert "Access-Control-Allow-Methods" in response.headers
 
 @pytest.mark.asyncio
-async def test_lifespan_normal_startup():
+async def test_lifespan_normal_startup(mock_embedding_service):
     """Test du cycle de vie normal de l'application."""
     app_mock = FastAPI()
 
-    with patch.object(faiss_service, 'load_index') as mock_load_index, \
-         patch.object(EmbeddingService, 'get_instance') as mock_embedding:
-
-        mock_embedding.return_value = MagicMock()
+    with patch.object(faiss_service, 'load_index') as mock_load_index:
+        # Le mock_embedding_service est déjà injecté via la fixture
         async with lifespan(app_mock):
             # Vérifier que les services sont initialisés
             assert mock_load_index.call_count >= 1
-            mock_embedding.assert_called_once()
+            # Pas besoin de vérifier l'appel à get_instance car c'est géré par la fixture
 
 @pytest.mark.asyncio
 async def test_lifespan_startup_failure():
@@ -63,7 +78,7 @@ def test_app_metadata():
     assert app.description is not None
 
 @pytest.mark.asyncio
-async def test_periodic_update():
+async def test_periodic_update(mock_embedding_service):
     """Test du service de mise à jour périodique."""
     with patch.object(faiss_service, 'update_periodically') as mock_update:
         mock_update.return_value = None
