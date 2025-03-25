@@ -56,7 +56,9 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          poetry run coverage run -m pytest --cov --cov-report=html --cov-report=xml --cov-report=term-missing ${{ github.workspace }}
+          poetry run coverage run -m pytest --junitxml=test-results.xml
+          poetry run coverage xml
+          poetry run coverage report
 
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2
