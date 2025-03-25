@@ -51,7 +51,7 @@ def segment_text(text: str, max_length: int = 1000) -> list[str]:
     for line in lines:
         # Détection des titres (## ou ###)
         is_title = line.strip().startswith("##")
-        
+
         if is_title:
             # Si on a un segment en cours, on l'ajoute
             if current_segment:
@@ -78,7 +78,7 @@ def segment_text(text: str, max_length: int = 1000) -> list[str]:
                 chunk = line[:available_space]
                 current_segment += chunk
                 line = line[available_space:]  # Le reste pour la prochaine itération
-                
+
                 if line:  # S'il reste du texte à traiter
                     current_segment = current_segment.rstrip() + "\n"
 
