@@ -48,6 +48,12 @@ select = [
     "PL",  # pylint
 ]
 
+# Enable isort rules
+isort = true
+
+# Enable pydocstyle rules
+pydocstyle = true
+
 ignore = [
     "E501",  # line too long (géré par Black)
     "D100",  # Missing docstring in public module (trop strict)
@@ -60,6 +66,7 @@ ignore = [
 fixable = ["ALL"]
 unfixable = []
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
 
 [format]
 quote-style = "double"
