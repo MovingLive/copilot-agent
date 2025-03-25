@@ -249,7 +249,7 @@ def test_missing_environment_variables(env_vars, mock_embeddings, mock_sentence_
         main()
 
 
-def test_embedding_dimension_consistency(mock_processed_docs, mock_sentence_transformer):
+def test_embedding_dimension_consistency(mock_processed_docs, mock_sentence_transformer, mock_env_vars):
     """
     Teste la cohérence des dimensions des embeddings générés.
     """
