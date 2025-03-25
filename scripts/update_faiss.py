@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Fichier : update_faiss.py.
 
 Ce script réalise les opérations suivantes :

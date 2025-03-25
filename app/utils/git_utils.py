@@ -1,4 +1,5 @@
 """Module utilitaire pour la gestion des dépôts Git.
+
 Contient des fonctions pour cloner et mettre à jour des dépôts Git.
 """
 
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
     """Clone ou met à jour le dépôt GitHub contenant la documentation.
+
     Utilise un répertoire temporaire si le répertoire cible n'est pas accessible en écriture.
 
     Args:

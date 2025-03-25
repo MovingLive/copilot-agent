@@ -1,4 +1,5 @@
 """Module utilitaire pour le traitement des documents Markdown.
+
 Contient des fonctions pour lire et segmenter des fichiers Markdown.
 """
 
@@ -66,7 +67,8 @@ def segment_text(text: str, max_length: int = 1000) -> list[str]:
                 continue
 
             # Si la ligne est trop longue, on la divise
-            while line:
+            remaining_text = line
+            while remaining_text:
                 available_space = max_length - len(current_segment)
                 if available_space <= 0:
                     # Le segment courant est plein, on l'ajoute et on en commence un nouveau
@@ -75,11 +77,11 @@ def segment_text(text: str, max_length: int = 1000) -> list[str]:
                     available_space = max_length - len(current_segment)
 
                 # On prend autant de caractères que possible
-                chunk = line[:available_space]
+                chunk = remaining_text[:available_space]
                 current_segment += chunk
-                line = line[available_space:]  # Le reste pour la prochaine itération
+                remaining_text = remaining_text[available_space:]  # Le reste pour la prochaine itération
 
-                if line:  # S'il reste du texte à traiter
+                if remaining_text:  # S'il reste du texte à traiter
                     current_segment = current_segment.rstrip() + "\n"
 
             current_segment = current_segment.rstrip() + "\n"
