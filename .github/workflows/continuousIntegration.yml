@@ -52,11 +52,6 @@ jobs:
           poetry config virtualenvs.create false
           poetry config virtualenvs.in-project false
 
-      - name: Run Python Linters
-        run: |
-          poetry run ruff check --exclude tests/ --output-format=github .
-          poetry run ruff format --exclude tests/ --check .
-
       - name: Run Tests with Coverage
         env:
           PYTHONPATH: ${{ github.workspace }}

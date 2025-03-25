@@ -120,7 +120,7 @@ def handle_copilot_api_error(error: httpx.HTTPError) -> None:
     if error.response.status_code == HTTPStatus.BAD_REQUEST:
         raise HTTPException(
             status_code=HTTPStatus.BAD_REQUEST,
-            detail="Format de requête incorrect pour l'API Copilot"
+            detail="Format de requête incorrect pour l'API Copilot",
         )
     elif error.response.status_code == HTTPStatus.UNAUTHORIZED:
         raise HTTPException(
