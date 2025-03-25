@@ -9,8 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.copilot_service import get_github_user
-from app.services.faiss_service import retrieve_similar_documents
 
 client = TestClient(app)
 
@@ -34,7 +32,7 @@ async def test_copilot_query_missing_token():
         json={"messages": [{"role": "user", "content": "test"}]}
     )
     assert response.status_code == 401
-    assert "Missing authentication token" in response.json()["detail"]
+    assert "Token d'authentification manquant" in response.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_copilot_query_invalid_request():
@@ -45,6 +43,7 @@ async def test_copilot_query_invalid_request():
         json={"messages": []}  # Messages vides
     )
     assert response.status_code == 400
+    assert "Messages manquants dans la requête" in response.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_copilot_query_success():
@@ -53,16 +52,20 @@ async def test_copilot_query_success():
     mock_github_user = AsyncMock(return_value="test_user")
     # Mock pour retrieve_similar_documents
     mock_retrieve_docs = AsyncMock(return_value=[
-        {"content": "Document de test"}
+        {
+            "content": "Document de test",
+            "distance": 0.5,
+            "metadata": {"file_path": "test.md"}
+        }
     ])
 
     # Mock pour la réponse de l'API Copilot en streaming
-    async def mock_stream(*args, **kwargs):
-        yield b'{"choices":[{"message":{"content":"Réponse test"}}]}'
+    async def mock_stream(*_):
+        yield b'{"choices":[{"message":{"content":"Test response"}}]}'
 
-    with patch("app.api.copilot.get_github_user", mock_github_user), \
-         patch("app.api.copilot.retrieve_similar_documents", mock_retrieve_docs), \
-         patch("httpx.AsyncClient.stream", new_callable=AsyncMock) as mock_stream:
+    with (patch("app.api.copilot.get_github_user", mock_github_user),
+          patch("app.api.copilot.retrieve_similar_documents", mock_retrieve_docs),
+          patch("httpx.AsyncClient.stream", new_callable=AsyncMock) as mock_stream):
 
         mock_stream.return_value.__aenter__.return_value.aiter_bytes = mock_stream
         mock_stream.return_value = mock_stream
@@ -85,18 +88,35 @@ async def test_copilot_query_success():
 @pytest.mark.asyncio
 async def test_copilot_query_with_context():
     """Test de l'endpoint Copilot avec contexte additionnel."""
+    # Mock pour get_github_user
     mock_github_user = AsyncMock(return_value="test_user")
+    # Mock pour retrieve_similar_documents avec résultats détaillés
     mock_retrieve_docs = AsyncMock(return_value=[
-        {"content": "Premier document"},
-        {"content": "Deuxième document"}
+        {
+            "content": "Premier document de test",
+            "distance": 0.3,
+            "metadata": {
+                "file_path": "test1.md",
+                "segment_index": 0
+            }
+        },
+        {
+            "content": "Deuxième document de test",
+            "distance": 0.5,
+            "metadata": {
+                "file_path": "test2.md",
+                "segment_index": 1
+            }
+        }
     ])
 
-    async def mock_stream(*args, **kwargs):
-        yield b'{"choices":[{"message":{"content":"Réponse avec contexte"}}]}'
+    # Mock pour la réponse streaming
+    async def mock_stream(*_):
+        yield b'{"choices":[{"message":{"content":"Response with context"}}]}'
 
-    with patch("app.api.copilot.get_github_user", mock_github_user), \
-         patch("app.api.copilot.retrieve_similar_documents", mock_retrieve_docs), \
-         patch("httpx.AsyncClient.stream", new_callable=AsyncMock) as mock_stream:
+    with (patch("app.api.copilot.get_github_user", mock_github_user),
+          patch("app.api.copilot.retrieve_similar_documents", mock_retrieve_docs),
+          patch("httpx.AsyncClient.stream", new_callable=AsyncMock) as mock_stream):
 
         mock_stream.return_value.__aenter__.return_value.aiter_bytes = mock_stream
         mock_stream.return_value = mock_stream

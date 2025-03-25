@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app.core.config import settings
 from app.services.copilot_service import (
     format_copilot_messages,
     generate_streaming_response,
@@ -44,7 +45,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
     context_sections = [
         doc["content"]
         for doc in docs
-        if doc.get("content") and len(doc["content"]) > 10
+        if doc.get("content") and len(doc["content"]) > settings.MIN_SEGMENT_LENGTH
     ]
 
     # Formatage du contexte pour le LLM
