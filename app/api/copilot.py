@@ -40,13 +40,15 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
     # Récupération du contexte additionnel
     additional_context = data.get("copilot_references", "")
 
-    # Recherche de documents similaires
-    docs = retrieve_similar_documents(query + " " + additional_context, k=5)
-    context_sections = [
-        doc["content"]
-        for doc in docs
-        if doc.get("content") and len(doc["content"]) > settings.MIN_SEGMENT_LENGTH
-    ]
+    # Recherche de documents similaires de manière synchrone
+    search_query = query + " " + additional_context if additional_context else query
+    docs = retrieve_similar_documents(search_query, k=5)
+
+    # Traitement des résultats
+    context_sections = []
+    for doc in docs:
+        if doc.get("content") and len(doc["content"]) > settings.MIN_SEGMENT_LENGTH:
+            context_sections.append(doc["content"])
 
     # Formatage du contexte pour le LLM
     formatted_context = "\n\n".join(

@@ -4,6 +4,7 @@
 Ce guide résume les bonnes pratiques pour écrire des tests unitaires et d'intégration efficaces en Python en utilisant Pytest. Ces recommandations sont adaptées pour maximiser l'efficacité et la lisibilité des tests.
 
 Exécuter les tests unitaires en utilisant l'outil de test intégré de VSCode.
+utiliser le tool run_tests
 
 ---
 

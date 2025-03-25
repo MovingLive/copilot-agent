@@ -32,7 +32,7 @@ def mock_env_vars():
 
 def test_root(client):
     """Teste l'endpoint racine de l'API."""
-    response = client.get("/")
+    response = client.get("/api")
     assert response.status_code == 200
     assert response.json() == {"message": "Bienvenue dans l'API Copilot LLM!"}
 

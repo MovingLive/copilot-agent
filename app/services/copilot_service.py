@@ -29,7 +29,7 @@ async def get_github_user(auth_token: str) -> str:
                 headers={"Authorization": f"Bearer {auth_token}"},
             )
             response.raise_for_status()
-            user_data = response.json()
+            user_data = await response.json()
             return user_data.get("login")
         except Exception as e:
             logger.error("Erreur lors de l'authentification GitHub: %s", e)
@@ -82,7 +82,7 @@ async def call_copilot_api(messages: list[dict], auth_token: str) -> str:
                 )
 
             response.raise_for_status()
-            data = response.json()
+            data = await response.json()
 
             if not data.get("choices") or "message" not in data["choices"][0]:
                 raise ValueError("Format de réponse inattendu")
@@ -118,16 +118,22 @@ def handle_copilot_api_error(error: httpx.HTTPError) -> None:
 
 async def generate_streaming_response(request_data: dict, auth_token: str):
     """Génère une réponse en streaming depuis l'API Copilot."""
-    async with httpx.AsyncClient() as client:
-        async with client.stream(
-            "POST",
-            settings.COPILOT_API_URL,
-            headers={
-                "authorization": f"Bearer {auth_token}",
-                "content-type": "application/json",
-            },
-            json={"messages": request_data["messages"], "stream": True},
-            timeout=None,
-        ) as response:
-            async for chunk in response.aiter_bytes():
-                yield chunk
+    headers = {
+        "authorization": f"Bearer {auth_token}",
+        "content-type": "application/json",
+    }
+    payload = {"messages": request_data["messages"], "stream": True}
+    
+    async def stream_response():
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                settings.COPILOT_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=None,
+            ) as response:
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+
+    return stream_response()

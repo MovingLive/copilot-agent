@@ -2,8 +2,7 @@
 Tests unitaires pour les endpoints API.
 """
 
-import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -51,7 +50,7 @@ async def test_copilot_query_success():
     # Mock pour get_github_user
     mock_github_user = AsyncMock(return_value="test_user")
     # Mock pour retrieve_similar_documents
-    mock_retrieve_docs = AsyncMock(return_value=[
+    mock_retrieve_docs = MagicMock(return_value=[
         {
             "content": "Document de test",
             "distance": 0.5,
@@ -59,16 +58,18 @@ async def test_copilot_query_success():
         }
     ])
 
-    # Mock pour la réponse de l'API Copilot en streaming
-    async def mock_stream(*_):
-        yield b'{"choices":[{"message":{"content":"Test response"}}]}'
+    # Configuration du mock streaming
+    mock_response = AsyncMock()
+    mock_response.aiter_bytes.return_value = [b'{"choices":[{"message":{"content":"Test response"}}]}']
+    mock_response.__aenter__.return_value = mock_response
+
+    mock_client = AsyncMock()
+    mock_client.stream.return_value = mock_response
+    mock_client.__aenter__.return_value = mock_client
 
     with (patch("app.api.copilot.get_github_user", mock_github_user),
           patch("app.api.copilot.retrieve_similar_documents", mock_retrieve_docs),
-          patch("httpx.AsyncClient.stream", new_callable=AsyncMock) as mock_stream):
-
-        mock_stream.return_value.__aenter__.return_value.aiter_bytes = mock_stream
-        mock_stream.return_value = mock_stream
+          patch("httpx.AsyncClient", return_value=mock_client)):
 
         response = client.post(
             "/api",
@@ -80,10 +81,8 @@ async def test_copilot_query_success():
         )
 
         assert response.status_code == 200
-        content = json.loads(response.content)
-        assert "choices" in content
-        assert "message" in content["choices"][0]
-        assert content["choices"][0]["message"]["content"] == "Réponse test"
+        content = b"".join([chunk for chunk in response.streaming_content])
+        assert b'{"choices":[{"message":{"content":"Test response"}}]}' in content
 
 @pytest.mark.asyncio
 async def test_copilot_query_with_context():
@@ -91,7 +90,7 @@ async def test_copilot_query_with_context():
     # Mock pour get_github_user
     mock_github_user = AsyncMock(return_value="test_user")
     # Mock pour retrieve_similar_documents avec résultats détaillés
-    mock_retrieve_docs = AsyncMock(return_value=[
+    mock_retrieve_docs = MagicMock(return_value=[
         {
             "content": "Premier document de test",
             "distance": 0.3,
@@ -110,16 +109,18 @@ async def test_copilot_query_with_context():
         }
     ])
 
-    # Mock pour la réponse streaming
-    async def mock_stream(*_):
-        yield b'{"choices":[{"message":{"content":"Response with context"}}]}'
+    # Configuration du mock streaming
+    mock_response = AsyncMock()
+    mock_response.aiter_bytes.return_value = [b'{"choices":[{"message":{"content":"Response with context"}}]}']
+    mock_response.__aenter__.return_value = mock_response
+
+    mock_client = AsyncMock()
+    mock_client.stream.return_value = mock_response
+    mock_client.__aenter__.return_value = mock_client
 
     with (patch("app.api.copilot.get_github_user", mock_github_user),
           patch("app.api.copilot.retrieve_similar_documents", mock_retrieve_docs),
-          patch("httpx.AsyncClient.stream", new_callable=AsyncMock) as mock_stream):
-
-        mock_stream.return_value.__aenter__.return_value.aiter_bytes = mock_stream
-        mock_stream.return_value = mock_stream
+          patch("httpx.AsyncClient", return_value=mock_client)):
 
         response = client.post(
             "/api",
@@ -131,6 +132,9 @@ async def test_copilot_query_with_context():
         )
 
         assert response.status_code == 200
+        content = b"".join([chunk for chunk in response.streaming_content])
+        assert b'{"choices":[{"message":{"content":"Response with context"}}]}' in content
+
         # Vérifier que retrieve_similar_documents a été appelé avec le bon contexte
         mock_retrieve_docs.assert_called_once_with(
             "test contexte spécifique",

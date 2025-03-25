@@ -1,13 +1,11 @@
-"""Tests E2E de l'API Copilot.
-
-Ces tests vérifient le comportement de l'API dans son ensemble.
-"""
+"""Tests d'intégration end-to-end."""
 
 import asyncio
 import json
 from typing import AsyncGenerator
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
@@ -15,14 +13,13 @@ from app.core.config import settings
 from app.main import app
 from app.services import faiss_service
 
-# Configuration des tests
-MOCK_GITHUB_TOKEN = "mock_token"
-MOCK_QUERY = "Comment implémenter un pattern Observer?"
+MOCK_QUERY = "test query"
+MOCK_GITHUB_TOKEN = "test-token"
 TEST_K = 3
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
-    """Fixture fournissant un client HTTP asynchrone."""
+    """Fixture pour le client HTTP asynchrone."""
     async with AsyncClient(app=app, base_url="http://test") as client:
         yield client
 
@@ -34,9 +31,9 @@ def test_client() -> TestClient:
 @pytest.fixture(autouse=True)
 def setup_faiss():
     """Fixture initialisant l'index FAISS pour les tests."""
-    faiss_service.load_faiss_index()
-    yield
-    # Nettoyage après les tests si nécessaire
+    index, doc_store = faiss_service.load_index()
+    faiss_service._state.index = index
+    faiss_service._state.document_store = doc_store
 
 def test_health_check(test_client: TestClient):
     """Test de l'endpoint de santé."""
@@ -47,7 +44,7 @@ def test_health_check(test_client: TestClient):
 @pytest.mark.asyncio
 async def test_root_endpoint(async_client: AsyncClient):
     """Test de l'endpoint racine."""
-    response = await async_client.get("/")
+    response = await async_client.get("/api")
     assert response.status_code == 200
     assert response.json() == {
         "message": "Bienvenue dans l'API Copilot LLM!"
@@ -63,7 +60,7 @@ async def test_copilot_query_without_token(async_client: AsyncClient):
         }
     )
     assert response.status_code == 401
-    assert "Missing authentication token" in response.json()["detail"]
+    assert "Token d'authentification manquant" in response.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_copilot_query_with_invalid_token(async_client: AsyncClient):
@@ -76,7 +73,7 @@ async def test_copilot_query_with_invalid_token(async_client: AsyncClient):
         }
     )
     assert response.status_code == 401
-    assert "Invalid GitHub token" in response.json()["detail"]
+    assert "Token GitHub invalide" in response.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_copilot_query_with_context(async_client: AsyncClient):
@@ -147,7 +144,8 @@ async def test_invalid_request_body(async_client: AsyncClient):
         headers={"x-github-token": MOCK_GITHUB_TOKEN},
         json={"invalid": "request"}
     )
-    assert response.status_code == 422  # Validation error
+    assert response.status_code == 400  # Bad Request
+    assert "Messages manquants" in response.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_large_query(async_client: AsyncClient):
