@@ -1,4 +1,5 @@
 """Package d'utilitaires pour l'application.
+
 Centralise les fonctionnalités communes utilisées par différentes parties de l'application.
 """
 

@@ -26,12 +26,12 @@ class MockResponse:
                 request=httpx.Request("POST", "https://api.example.com"),
                 response=self
             )
-    
+
     def json(self):
         if isinstance(self._text, str) and (self._text.startswith('{') or self._text.startswith('[')):
             return json.loads(self._text)
         return json.loads(json.dumps(self._text))
-    
+
     async def aiter_bytes(self):
         if hasattr(self, 'chunks'):
             for chunk in self.chunks:
@@ -141,7 +141,7 @@ async def test_generate_streaming_response(monkeypatch):
     response = MockResponse(200, "Streaming content")
     response.chunks = [b"chunk1", b"chunk2"]
     monkeypatch.setattr(httpx, "AsyncClient", lambda: MockStreamingClient(response))
-    
+
     request_data = {"messages": [{"role": "user", "content": "Stream test"}]}
     chunks = []
     async for chunk in copilot_service.generate_streaming_response(request_data, "fake_token"):
@@ -162,7 +162,7 @@ def test_handle_copilot_api_error(status_code, expected_detail):
         request=httpx.Request("POST", "https://api.example.com"),
         response=response
     )
-    
+
     with pytest.raises(HTTPException) as exc_info:
         copilot_service.handle_copilot_api_error(error)
     assert exc_info.value.status_code == status_code
@@ -182,7 +182,7 @@ async def test_call_copilot_api_network_error(monkeypatch):
             pass
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda: MockClient())
-    
+
     with pytest.raises(HTTPException) as exc_info:
         await copilot_service.call_copilot_api([], "fake_token")
     assert exc_info.value.status_code == 500
@@ -201,7 +201,7 @@ async def test_call_copilot_api_timeout(monkeypatch):
             pass
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda: MockClient())
-    
+
     with pytest.raises(HTTPException) as exc_info:
         await copilot_service.call_copilot_api([], "fake_token")
     assert exc_info.value.status_code == 500
@@ -221,7 +221,7 @@ async def test_generate_streaming_response_network_error(monkeypatch):
             return ErrorStream()
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda: ErrorClient())
-    
+
     with pytest.raises(HTTPException) as exc_info:
         async for _ in copilot_service.generate_streaming_response({"messages": []}, "fake_token"):
             pass
@@ -232,13 +232,13 @@ async def test_generate_streaming_response_network_error(monkeypatch):
 async def test_generate_streaming_response_invalid_response(monkeypatch):
     """Test la gestion des réponses invalides pendant le streaming."""
     error_response = MockResponse(400, "Bad Request")
-    
+
     class ErrorClient(MockStreamingClient):
         def stream(self, *args, **kwargs):
             return MockStream(error_response)
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda: ErrorClient())
-    
+
     with pytest.raises(HTTPException) as exc_info:
         async for _ in copilot_service.generate_streaming_response({"messages": []}, "fake_token"):
             pass
