@@ -23,13 +23,13 @@ from scripts.update_chroma import (
 def mock_embedding_function(mock_sentence_transformer):
     """Mock de la fonction d'embedding de ChromaDB."""
     mock_ef = MagicMock()
-    
+
     def mock_encode(texts):
         # Utiliser le même mock que pour FAISS
         if isinstance(texts, list):
             return np.zeros((len(texts), EXPECTED_DIMENSION), dtype=np.float32)
         return np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
-    
+
     mock_ef.__call__ = MagicMock(side_effect=mock_encode)
     return mock_ef
 
@@ -161,11 +161,11 @@ def test_s3_export(mock_env_vars, mock_embedding_function):
     Teste l'exportation des données vers S3.
     """
     import boto3
-    
+
     # Configurer le mock S3
     s3 = boto3.client("s3", region_name="us-east-1")
     s3.create_bucket(Bucket="test-bucket")
-    
+
     with (
         patch("scripts.update_chroma.clone_or_update_repo"),
         patch("scripts.update_chroma.read_markdown_files"),
@@ -177,15 +177,15 @@ def test_s3_export(mock_env_vars, mock_embedding_function):
         ) as mock_ef_class,
     ):
         mock_ef_class.return_value = mock_embedding_function
-        
+
         # Exécution de la fonction principale
         main()
-        
+
         # Vérification que l'export a été appelé
         mock_export.assert_called_once()
 
 
-def test_document_processing(mock_documents, mock_env_vars):
+def test_document_processing(mock_documents, mock_env_vars, mock_embedding_function):
     """
     Teste le traitement des documents.
     """
@@ -195,9 +195,13 @@ def test_document_processing(mock_documents, mock_env_vars):
         patch("scripts.update_chroma.process_documents_for_chroma") as mock_process,
         patch("scripts.update_chroma.chromadb.Client"),
         patch("scripts.update_chroma.export_data"),
+        patch(
+            "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
+        ) as mock_ef_class,
     ):
         mock_read.return_value = mock_documents
         mock_process.return_value = []
+        mock_ef_class.return_value = mock_embedding_function
 
         # Exécution de la fonction principale
         main()
