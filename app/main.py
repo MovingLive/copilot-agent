@@ -30,7 +30,7 @@ async def lifespan(_: FastAPI):
     try:
         # Initialisation du modèle d'embedding
         logger.info("Initialisation du modèle d'embedding...")
-        EmbeddingService.get_instance().model
+        _ = EmbeddingService.get_instance().model
 
         # Initialisation de FAISS
         logger.info("Initialisation du service FAISS...")

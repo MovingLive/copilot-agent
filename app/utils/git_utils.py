@@ -9,6 +9,9 @@ import subprocess
 import sys
 import tempfile
 
+# Errno constant for read-only file system
+EROFS = 30
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +44,18 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
     return _clone_or_pull_repo(repo_url, repo_dir_path)
 
 
+def _handle_parent_directory(parent_dir: str, configured_dir: str) -> str:
+    """Gère la création du répertoire parent."""
+    try:
+        os.makedirs(parent_dir, exist_ok=True)
+        return configured_dir
+    except OSError as e:
+        if e.errno == EROFS:  # Read-only file system
+            logger.warning("Système de fichiers en lecture seule détecté pour %s", parent_dir)
+        else:
+            logger.warning("Impossible de créer le répertoire parent %s: %s", parent_dir, e)
+        return _create_temp_directory()
+
 def _get_writable_directory(target_dir: str) -> str:
     """Trouve un répertoire accessible en écriture."""
     try:
@@ -48,33 +63,23 @@ def _get_writable_directory(target_dir: str) -> str:
         parent_dir = os.path.dirname(configured_dir)
 
         if not os.path.exists(parent_dir):
-            try:
-                os.makedirs(parent_dir, exist_ok=True)
-            except OSError as e:
-                if e.errno == 30:  # EROFS - Read-only file system
-                    logger.warning(
-                        "Système de fichiers en lecture seule détecté pour %s",
-                        parent_dir,
-                    )
-                    return _create_temp_directory()
-                logger.warning(
-                    "Impossible de créer le répertoire parent %s: %s", parent_dir, e
-                )
-                return _create_temp_directory()
+            return _handle_parent_directory(parent_dir, configured_dir)
 
-        if os.path.exists(configured_dir):
-            if _is_directory_writable(configured_dir):
-                return configured_dir
-            return _create_temp_directory()
-
-        try:
-            os.makedirs(configured_dir, exist_ok=True)
-            return configured_dir
-        except OSError:
-            return _create_temp_directory()
+        return _handle_configured_directory(configured_dir)
 
     except OSError as e:
         logger.warning("Erreur lors de la vérification des permissions: %s", e)
+        return _create_temp_directory()
+
+def _handle_configured_directory(configured_dir: str) -> str:
+    """Gère la vérification et création du répertoire configuré."""
+    if os.path.exists(configured_dir):
+        return configured_dir if _is_directory_writable(configured_dir) else _create_temp_directory()
+
+    try:
+        os.makedirs(configured_dir, exist_ok=True)
+        return configured_dir
+    except OSError:
         return _create_temp_directory()
 
 

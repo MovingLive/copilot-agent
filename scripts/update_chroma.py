@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""Fichier : update_chroma.py
+"""
 
 Ce script réalise les opérations suivantes :
 1. Cloner ou mettre à jour un dépôt GitHub contenant la documentation Markdown.
