@@ -30,11 +30,30 @@ exclude = [
 ]
 line-length = 88
 indent-width = 4
-target-version = "py312"
+target-version = "py310"
 
 [lint]
-select = ["E4", "E7", "E9", "F"]
-ignore = []
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C",   # flake8-comprehensions
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "SIM", # flake8-simplify
+    "ARG", # flake8-unused-arguments
+    "D",   # pydocstyle
+    "PL",  # pylint
+]
+
+ignore = [
+    "E501",  # line too long (géré par Black)
+    "D100",  # Missing docstring in public module (trop strict)
+    "D104",  # Missing docstring in public package (trop strict)
+    "D107",  # Missing docstring in __init__ (redondant)
+]
 fixable = ["ALL"]
 unfixable = []
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
@@ -46,4 +65,29 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 docstring-code-format = true
 docstring-code-line-length = "dynamic"
+
+[pydocstyle]
+convention = "google"
+
+[isort]
+known-first-party = ["app"]
+known-third-party = [
+    "fastapi",
+    "pydantic",
+    "sentence_transformers",
+    "faiss",
+    "chromadb",
+    "boto3",
+]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+
+[per-file-ignores]
+"tests/*" = ["D", "PL"]  # Ignorer les règles de docstring dans les tests
+"app/utils/__init__.py" = ["F401"]  # Ignorer les imports inutilisés dans __init__.py
 
