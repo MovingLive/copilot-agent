@@ -5,14 +5,29 @@ Tests unitaires pour le script update_faiss.py
 import json
 import os
 from unittest.mock import MagicMock, patch
-
-import faiss
 import numpy as np
 import pytest
 from moto import mock_aws
+import faiss
 
 from app.core.config import settings
 from scripts.update_faiss import create_faiss_index, main, save_faiss_index
+
+# Mock global pour éviter les appels à Hugging Face
+@pytest.fixture(autouse=True)
+def mock_sentence_transformer():
+    """
+    Mock global du modèle SentenceTransformer pour éviter les appels réseau.
+    
+    Règle appliquée: Testing
+    """
+    with patch('sentence_transformers.SentenceTransformer') as mock_st:
+        # Création d'un mock sophistiqué qui imite le comportement du modèle
+        mock_model = MagicMock()
+        mock_model.encode.return_value = np.random.rand(2, 384).astype('float32')
+        mock_model.get_sentence_embedding_dimension.return_value = 384
+        mock_st.return_value = mock_model
+        yield mock_model
 
 
 @pytest.fixture
