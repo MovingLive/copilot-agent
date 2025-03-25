@@ -3,6 +3,7 @@
 Orchestre les différents composants de l'application.
 """
 
+import asyncio
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -12,7 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import copilot, health
 from app.core.config import settings
-from app.services import embedding_service, faiss_service
+from app.services import faiss_service
+from app.services.embedding_service import EmbeddingService
 
 # Configuration du logging
 logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
@@ -28,16 +30,16 @@ async def lifespan(_: FastAPI):
     try:
         # Initialisation du modèle d'embedding
         logger.info("Initialisation du modèle d'embedding...")
-        embedding_service.get_embedding_model()
+        EmbeddingService.get_instance().model
 
         # Initialisation de FAISS
         logger.info("Initialisation du service FAISS...")
-        faiss_service.load_faiss_index()
+        faiss_service.load_index()
 
         # Démarrage du service de mise à jour périodique
         logger.info("Démarrage du service de mise à jour périodique...")
         update_thread = threading.Thread(
-            target=faiss_service.update_faiss_index_periodically,
+            target=lambda: asyncio.run(faiss_service.update_periodically()),
             daemon=True,
             name="faiss_updater",
         )
@@ -70,5 +72,5 @@ app.add_middleware(
 )
 
 # Montage des routeurs
-app.include_router(health.router, prefix="/api", tags=["health"])
-app.include_router(copilot.router, prefix="/api", tags=["copilot"])
+app.include_router(health.router, tags=["health"])
+app.include_router(copilot.router, tags=["copilot"])

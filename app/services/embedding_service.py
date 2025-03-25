@@ -164,7 +164,7 @@ def generate_query_vector(query: str) -> np.ndarray:
         query: Texte de la requête
 
     Returns:
-        np.ndarray: Vecteur de requête normalisé
+        np.ndarray: Vecteur de requête normalisé et correctement dimensionné (2D)
 
     Raises:
         ValueError: Si la requête est invalide
@@ -175,12 +175,14 @@ def generate_query_vector(query: str) -> np.ndarray:
         model = EmbeddingService.get_instance().model
 
         with torch.no_grad():
+            # Force la génération d'embeddings en mode batch (1 élément) pour assurer un tenseur 2D
             vector = (
-                model.encode(query, convert_to_tensor=True, normalize_embeddings=True)
+                model.encode([query], convert_to_tensor=True, normalize_embeddings=True)
                 .cpu()
                 .numpy()
             )
 
+        # Vérification de la dimension attendue
         if vector.shape[1] != EXPECTED_DIMENSION:
             raise ValueError(
                 f"Dimension incorrecte: {vector.shape[1]}, "

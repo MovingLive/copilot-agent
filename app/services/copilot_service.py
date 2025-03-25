@@ -29,7 +29,7 @@ async def get_github_user(auth_token: str) -> str:
                 headers={"Authorization": f"Bearer {auth_token}"},
             )
             response.raise_for_status()
-            user_data = await response.json()
+            user_data = response.json()
             return user_data.get("login")
         except Exception as e:
             logger.error("Erreur lors de l'authentification GitHub: %s", e)
@@ -117,14 +117,25 @@ def handle_copilot_api_error(error: httpx.HTTPError) -> None:
 
 
 async def generate_streaming_response(request_data: dict, auth_token: str):
-    """Génère une réponse en streaming depuis l'API Copilot."""
+    """Génère une réponse en streaming depuis l'API Copilot.
+
+    Args:
+        request_data: Données de la requête
+        auth_token: Token d'authentification
+
+    Returns:
+        Un générateur asynchrone qui produit des chunks de réponse
+
+    Raises:
+        HTTPException: En cas d'erreur d'API
+    """
     headers = {
         "authorization": f"Bearer {auth_token}",
         "content-type": "application/json",
     }
     payload = {"messages": request_data["messages"], "stream": True}
-    
-    async def stream_response():
+
+    try:
         async with httpx.AsyncClient() as client:
             async with client.stream(
                 "POST",
@@ -133,7 +144,21 @@ async def generate_streaming_response(request_data: dict, auth_token: str):
                 json=payload,
                 timeout=None,
             ) as response:
+                if not response.is_success:
+                    error_detail = await response.aread()
+                    logger.error(
+                        "Échec de l'appel API Copilot (%d): %s",
+                        response.status_code,
+                        error_detail.decode("utf-8", errors="replace"),
+                    )
+                    response.raise_for_status()
+
                 async for chunk in response.aiter_bytes():
                     yield chunk
-
-    return stream_response()
+    except httpx.HTTPError as http_err:
+        handle_copilot_api_error(http_err)
+    except Exception as e:
+        logger.error("Erreur lors du streaming depuis l'API Copilot: %s", e)
+        raise HTTPException(
+            status_code=500, detail="Erreur lors du streaming depuis le service Copilot"
+        ) from e

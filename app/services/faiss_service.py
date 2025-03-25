@@ -149,11 +149,34 @@ async def update_periodically() -> None:
 
 
 def _prepare_query_vector(query_vector: np.ndarray) -> np.ndarray:
-    """Prépare le vecteur de requête avec la bonne dimension."""
+    """Prépare le vecteur de requête avec la bonne dimension.
+
+    Args:
+        query_vector: Le vecteur de requête à préparer
+
+    Returns:
+        np.ndarray: Vecteur de requête redimensionné si nécessaire
+
+    Raises:
+        FAISSLoadError: Si l'index FAISS n'est pas initialisé
+    """
     if _state.index is None:
         raise FAISSLoadError("Index FAISS non initialisé")
 
+    # Log détaillé des dimensions pour faciliter le débogage
+    logger.debug(
+        "Préparation du vecteur de requête - Dimensions: vecteur=%s, index=%d",
+        query_vector.shape,
+        _state.index.d,
+    )
+
     if query_vector.shape[1] != _state.index.d:
+        logger.warning(
+            "Différence de dimensions détectée: vecteur=%d, index=%d. Ajustement automatique...",
+            query_vector.shape[1],
+            _state.index.d,
+        )
+
         new_vector = np.zeros((1, _state.index.d), dtype="float32")
         min_dim = min(query_vector.shape[1], _state.index.d)
         new_vector[0, :min_dim] = query_vector[0, :min_dim]

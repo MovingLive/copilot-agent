@@ -82,7 +82,9 @@ def create_faiss_index(
     if embeddings.size == 0:
         raise ValueError("Aucun embedding n'a été généré")
 
-    dimension = embeddings.shape[1] if len(embeddings.shape) > 1 else 128
+    # Utilisation de la dimension du modèle ou 384 par défaut (comme dans embedding_service.py)
+    dimension = embeddings.shape[1] if len(embeddings.shape) > 1 else 384
+    logging.info("Dimension des embeddings: %d", dimension)
 
     # Création de l'index FAISS
     index = faiss.IndexFlatL2(dimension)
