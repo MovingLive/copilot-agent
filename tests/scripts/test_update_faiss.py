@@ -126,6 +126,7 @@ def test_main_workflow(
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
         patch("scripts.update_faiss.save_faiss_index") as mock_save,
         patch("scripts.update_faiss.export_data") as mock_export,
+        patch("sentence_transformers.SentenceTransformer", return_value=mock_sentence_transformer),
     ):
         # Configuration des mocks
         mock_clone.return_value = "test_repo_path"
@@ -161,6 +162,7 @@ def test_s3_export(mock_env_vars, mock_embeddings, mock_sentence_transformer):
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
         patch("scripts.update_faiss.save_faiss_index"),
         patch("scripts.update_faiss.export_data") as mock_export,
+        patch("sentence_transformers.SentenceTransformer", return_value=mock_sentence_transformer),
     ):
         # Configuration des mocks
         mock_clone.return_value = "test_repo_path"
@@ -204,6 +206,7 @@ def test_empty_documents(mock_env_vars, mock_embeddings, mock_sentence_transform
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
         patch("scripts.update_faiss.save_faiss_index") as mock_save,
         patch("scripts.update_faiss.export_data") as mock_export,
+        patch("sentence_transformers.SentenceTransformer", return_value=mock_sentence_transformer),
         pytest.raises(ValueError, match="La liste de documents est vide"),
     ):
         # Configuration des mocks
