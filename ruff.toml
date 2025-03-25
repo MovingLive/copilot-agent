@@ -61,6 +61,12 @@ fixable = ["ALL"]
 unfixable = []
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
+# Enable isort rules
+isort = true
+
+# Enable pydocstyle rules
+pydocstyle = true
+
 [format]
 quote-style = "double"
 indent-style = "space"
@@ -93,4 +99,9 @@ section-order = [
 [per-file-ignores]
 "tests/*" = ["D", "PL"]  # Ignorer les règles de docstring dans les tests
 "app/utils/__init__.py" = ["F401"]  # Ignorer les imports inutilisés dans __init__.py
+
+# File-specific rule exclusions
+[lint.per-file-ignores]
+"tests/*" = ["D100", "D101", "D102", "D103"]  # Ignore missing docstrings in tests
+"scripts/*" = ["D100"]  # Ignore module docstrings in scripts
 
