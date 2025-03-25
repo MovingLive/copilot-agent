@@ -1,5 +1,4 @@
 """
-
 Ce script réalise les opérations suivantes :
 1. Cloner ou mettre à jour un dépôt GitHub contenant la documentation Markdown.
 2. Lire et segmenter les fichiers Markdown en morceaux de taille raisonnable.

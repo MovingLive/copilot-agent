@@ -85,6 +85,8 @@ ignore = [
     "D100",  # Missing docstring in public module
     "D104",  # Missing docstring in public package
     "D107",  # Missing docstring in __init__
+    "D205",  # 1 blank line required between summary line and description
+    "D212",  # Multi-line docstring summary should start at the first line
 ]
 fixable = ["ALL"]
 unfixable = []
