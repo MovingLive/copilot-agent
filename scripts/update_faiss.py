@@ -65,8 +65,9 @@ def create_faiss_index(
     try:
         texts = [doc["text"] for doc in processed_docs]
         numeric_ids = [doc["numeric_id"] for doc in processed_docs]
+        # Convertir les IDs en str dès la création du mapping
         metadata_mapping = {
-            doc["numeric_id"]: doc["metadata"] for doc in processed_docs
+            str(doc["numeric_id"]): doc["metadata"] for doc in processed_docs
         }
     except (KeyError, TypeError) as e:
         raise ValueError(

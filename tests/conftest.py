@@ -14,7 +14,7 @@ from httpx import AsyncClient
 
 from app.main import app
 from app.services import faiss_service
-from app.services.embedding_service import EXPECTED_DIMENSION
+from app.services.embedding_service import EmbeddingService, EXPECTED_DIMENSION
 
 # Configuration pour les tests
 @pytest.fixture(scope="session")
@@ -24,30 +24,29 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     yield loop
     loop.close()
 
-# Mock global pour SentenceTransformer
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="function")
 def mock_sentence_transformer():
     """
-    Mock global pour SentenceTransformer afin d'éviter tout téléchargement de modèle.
-
-    Règle appliquée: Testing
+    Mock du modèle SentenceTransformer pour les tests.
+    Chaque test peut configurer son propre comportement du mock.
     """
-    with patch('sentence_transformers.SentenceTransformer') as mock_st:
-        # Création d'un mock sophistiqué qui imite le comportement du modèle
-        mock_model = MagicMock()
+    mock_model = MagicMock()
+    mock_model.encode.return_value = np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
+    mock_model.get_sentence_embedding_dimension.return_value = EXPECTED_DIMENSION
 
-        # Configuration du mock pour encode() qui renvoie des embeddings valides
-        mock_encode = MagicMock()
-        mock_encode.return_value = np.zeros(EXPECTED_DIMENSION, dtype=np.float32)
-        mock_model.encode = mock_encode
-
-        # Configuration de get_sentence_embedding_dimension()
-        mock_model.get_sentence_embedding_dimension.return_value = EXPECTED_DIMENSION
-
-        # Faire en sorte que le constructeur renvoie notre mock
-        mock_st.return_value = mock_model
-
+    with patch('sentence_transformers.SentenceTransformer', return_value=mock_model):
         yield mock_model
+
+@pytest.fixture(scope="function", autouse=True)
+def reset_embedding_service():
+    """
+    Réinitialise le service d'embedding avant chaque test.
+    """
+    EmbeddingService._instance = None
+    EmbeddingService._model = None
+    yield
+    EmbeddingService._instance = None
+    EmbeddingService._model = None
 
 @pytest.fixture(scope="session")
 def test_client() -> Generator[TestClient, None, None]:

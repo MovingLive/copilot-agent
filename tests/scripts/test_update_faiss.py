@@ -4,7 +4,7 @@ Tests unitaires pour le script update_faiss.py
 
 import json
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import numpy as np
 import pytest
 from moto import mock_aws
@@ -12,24 +12,9 @@ import faiss
 
 from app.core.config import settings
 from scripts.update_faiss import create_faiss_index, main, save_faiss_index
+from app.services.embedding_service import EXPECTED_DIMENSION
 
-# Mock global pour éviter les appels à Hugging Face
-@pytest.fixture(autouse=True)
-def mock_sentence_transformer():
-    """
-    Mock global du modèle SentenceTransformer pour éviter les appels réseau.
-    
-    Règle appliquée: Testing
-    """
-    with patch('sentence_transformers.SentenceTransformer') as mock_st:
-        # Création d'un mock sophistiqué qui imite le comportement du modèle
-        mock_model = MagicMock()
-        mock_model.encode.return_value = np.random.rand(2, 384).astype('float32')
-        mock_model.get_sentence_embedding_dimension.return_value = 384
-        mock_st.return_value = mock_model
-        yield mock_model
-
-
+# Les fixtures pour les tests
 @pytest.fixture
 def mock_documents():
     """Fixture pour simuler les documents de test."""
@@ -74,27 +59,31 @@ def mock_env_vars():
 @pytest.fixture
 def mock_embeddings():
     """Fixture pour simuler les embeddings."""
-    return np.random.rand(2, 128).astype("float32")
+    return np.zeros((2, EXPECTED_DIMENSION), dtype=np.float32)
 
 
-def test_create_faiss_index(mock_processed_docs, mock_embeddings):
+def test_create_faiss_index(mock_processed_docs, mock_sentence_transformer):
     """
     Teste la création d'un index FAISS avec les documents traités.
     """
-    with patch("sentence_transformers.SentenceTransformer") as mock_model:
-        # Configuration du mock
-        model_instance = MagicMock()
-        model_instance.encode.return_value = mock_embeddings
-        mock_model.return_value = model_instance
+    # Configuration du mock pour qu'il retourne des embeddings de la bonne dimension
+    mock_embeddings = np.zeros((len(mock_processed_docs), EXPECTED_DIMENSION), dtype=np.float32)
+    mock_sentence_transformer.encode.reset_mock()
+    mock_sentence_transformer.encode.return_value = mock_embeddings
 
-        # Exécution de la fonction
-        index, mapping = create_faiss_index(mock_processed_docs, mock_model())
+    # Exécution de la fonction
+    index, mapping = create_faiss_index(mock_processed_docs, mock_sentence_transformer)
 
-        # Vérifications
-        assert isinstance(index, faiss.IndexIDMap)
-        assert len(mapping) == len(mock_processed_docs)
-        assert all(doc["numeric_id"] in mapping for doc in mock_processed_docs)
-        model_instance.encode.assert_called_once()
+    # Vérifications
+    assert isinstance(index, faiss.IndexIDMap)
+    assert len(mapping) == len(mock_processed_docs)
+    assert all(str(doc["numeric_id"]) in mapping for doc in mock_processed_docs)
+
+    # Vérification de l'appel à encode
+    mock_sentence_transformer.encode.assert_called_once_with(
+        [doc["text"] for doc in mock_processed_docs],
+        show_progress_bar=True
+    )
 
 
 def test_save_faiss_index(tmp_path, mock_processed_docs):
@@ -126,7 +115,7 @@ def test_save_faiss_index(tmp_path, mock_processed_docs):
 
 
 def test_main_workflow(
-    mock_documents, mock_processed_docs, mock_embeddings, mock_env_vars
+    mock_documents, mock_processed_docs, mock_embeddings, mock_env_vars, mock_sentence_transformer
 ):
     """
     Teste le flux principal du script.
@@ -135,7 +124,6 @@ def test_main_workflow(
         patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
         patch("scripts.update_faiss.read_markdown_files") as mock_read,
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("sentence_transformers.SentenceTransformer") as mock_model,
         patch("scripts.update_faiss.save_faiss_index") as mock_save,
         patch("scripts.update_faiss.export_data") as mock_export,
     ):
@@ -143,9 +131,7 @@ def test_main_workflow(
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = mock_documents
         mock_process.return_value = mock_processed_docs
-        model_instance = MagicMock()
-        model_instance.encode.return_value = mock_embeddings
-        mock_model.return_value = model_instance
+        mock_sentence_transformer.encode.return_value = mock_embeddings
 
         # Exécution de la fonction principale
         main()
@@ -159,7 +145,7 @@ def test_main_workflow(
 
 
 @mock_aws
-def test_s3_export(mock_env_vars, mock_embeddings):
+def test_s3_export(mock_env_vars, mock_embeddings, mock_sentence_transformer):
     """
     Teste l'exportation des données vers S3.
     """
@@ -173,7 +159,6 @@ def test_s3_export(mock_env_vars, mock_embeddings):
         patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
         patch("scripts.update_faiss.read_markdown_files") as mock_read,
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("sentence_transformers.SentenceTransformer") as mock_model,
         patch("scripts.update_faiss.save_faiss_index"),
         patch("scripts.update_faiss.export_data") as mock_export,
     ):
@@ -181,9 +166,7 @@ def test_s3_export(mock_env_vars, mock_embeddings):
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = [{"text": "test"}]
         mock_process.return_value = [{"numeric_id": 1, "text": "test", "metadata": {}}]
-        model_instance = MagicMock()
-        model_instance.encode.return_value = mock_embeddings
-        mock_model.return_value = model_instance
+        mock_sentence_transformer.encode.return_value = mock_embeddings
 
         # Exécution de la fonction principale
         main()
@@ -211,7 +194,7 @@ def test_error_handling(mock_env_vars):
         mock_error.assert_called()
 
 
-def test_empty_documents(mock_env_vars, mock_embeddings):
+def test_empty_documents(mock_env_vars, mock_embeddings, mock_sentence_transformer):
     """
     Teste le comportement avec une liste de documents vide.
     """
@@ -219,7 +202,6 @@ def test_empty_documents(mock_env_vars, mock_embeddings):
         patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
         patch("scripts.update_faiss.read_markdown_files") as mock_read,
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("sentence_transformers.SentenceTransformer") as mock_model,
         patch("scripts.update_faiss.save_faiss_index") as mock_save,
         patch("scripts.update_faiss.export_data") as mock_export,
         pytest.raises(ValueError, match="La liste de documents est vide"),
@@ -228,9 +210,8 @@ def test_empty_documents(mock_env_vars, mock_embeddings):
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = []
         mock_process.return_value = []
-        model_instance = MagicMock()
-        model_instance.encode.return_value = np.array([]).reshape((0, 128))
-        mock_model.return_value = model_instance
+        empty_embeddings = np.array([]).reshape((0, EXPECTED_DIMENSION))
+        mock_sentence_transformer.encode.return_value = empty_embeddings
 
         # Exécution de la fonction principale
         main()
@@ -244,7 +225,7 @@ def test_empty_documents(mock_env_vars, mock_embeddings):
         {"ENV": "prod", "S3_BUCKET_NAME": ""},  # Nom de bucket vide en prod
     ],
 )
-def test_missing_environment_variables(env_vars, mock_embeddings):
+def test_missing_environment_variables(env_vars, mock_embeddings, mock_sentence_transformer):
     """
     Teste le comportement avec des variables d'environnement manquantes.
     """
@@ -252,40 +233,35 @@ def test_missing_environment_variables(env_vars, mock_embeddings):
         patch.dict(os.environ, env_vars, clear=True),
         patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
         patch("scripts.update_faiss.read_markdown_files") as mock_read,
-        patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("sentence_transformers.SentenceTransformer") as mock_model,
+        patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,  # Capturé correctement
     ):
         # Configuration des mocks
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = [{"text": "test"}]
         mock_process.return_value = [{"numeric_id": 1, "text": "test", "metadata": {}}]
-        model_instance = MagicMock()
-        model_instance.encode.return_value = mock_embeddings
-        mock_model.return_value = model_instance
+        mock_sentence_transformer.encode.reset_mock()  # Réinitialiser le mock
+        mock_sentence_transformer.encode.return_value = mock_embeddings
 
         # La fonction devrait utiliser les valeurs par défaut
         main()
 
 
-def test_embedding_dimension_consistency(mock_processed_docs):
+def test_embedding_dimension_consistency(mock_processed_docs, mock_sentence_transformer):
     """
     Teste la cohérence des dimensions des embeddings générés.
     """
-    with patch("sentence_transformers.SentenceTransformer") as mock_model:
-        # Configurer deux séries d'embeddings de dimensions différentes
-        embeddings1 = np.random.rand(2, 128).astype("float32")
-        embeddings2 = np.random.rand(2, 128).astype("float32")
+    # Configurer deux séries d'embeddings de dimensions identiques
+    embeddings1 = np.zeros((2, EXPECTED_DIMENSION), dtype=np.float32)
+    embeddings2 = np.zeros((2, EXPECTED_DIMENSION), dtype=np.float32)
 
-        model_instance = MagicMock()
-        model_instance.encode.side_effect = [embeddings1, embeddings2]
-        mock_model.return_value = model_instance
+    mock_sentence_transformer.encode.side_effect = [embeddings1, embeddings2]
 
-        # Créer deux index avec les mêmes documents
-        index1, _ = create_faiss_index(mock_processed_docs, mock_model())
-        index2, _ = create_faiss_index(mock_processed_docs, mock_model())
+    # Créer deux index avec les mêmes documents
+    index1, _ = create_faiss_index(mock_processed_docs, mock_sentence_transformer)
+    index2, _ = create_faiss_index(mock_processed_docs, mock_sentence_transformer)
 
-        # Vérifier que les dimensions sont identiques
-        assert index1.d == index2.d == 128
+    # Vérifier que les dimensions sont identiques
+    assert index1.d == index2.d == EXPECTED_DIMENSION
 
 
 def test_save_faiss_index_file_permissions(tmp_path, mock_processed_docs):
@@ -304,7 +280,7 @@ def test_save_faiss_index_file_permissions(tmp_path, mock_processed_docs):
         save_faiss_index(index, mapping, str(tmp_path))
 
 
-def test_large_document_batch():
+def test_large_document_batch(mock_sentence_transformer):
     """
     Teste le traitement d'un grand nombre de documents.
     """
@@ -318,41 +294,39 @@ def test_large_document_batch():
         for i in range(1000)
     ]
 
-    with patch("sentence_transformers.SentenceTransformer") as mock_model:
-        # Simuler des embeddings pour tous les documents
-        embeddings = np.random.rand(1000, 128).astype("float32")
-        model_instance = MagicMock()
-        model_instance.encode.return_value = embeddings
-        mock_model.return_value = model_instance
+    # Réinitialiser le mock et configurer le retour
+    mock_sentence_transformer.encode.reset_mock()
+    mock_sentence_transformer.encode.side_effect = None  # Supprimer tout side_effect précédent
+    mock_sentence_transformer.encode.return_value = np.zeros((1000, EXPECTED_DIMENSION), dtype=np.float32)
 
-        # Créer l'index
-        index, mapping = create_faiss_index(large_docs, mock_model())
+    # Créer l'index
+    index, mapping = create_faiss_index(large_docs, mock_sentence_transformer)
 
-        # Vérifications
-        assert index.ntotal == 1000
-        assert len(mapping) == 1000
+    # Vérifications
+    assert index.ntotal == 1000
+    assert len(mapping) == 1000
 
 
-def test_faiss_search_functionality(mock_processed_docs, mock_embeddings):
+def test_faiss_search_functionality(mock_processed_docs, mock_embeddings, mock_sentence_transformer):
     """
     Teste la fonctionnalité de recherche de l'index FAISS.
     """
-    with patch("sentence_transformers.SentenceTransformer") as mock_model:
-        model_instance = MagicMock()
-        model_instance.encode.return_value = mock_embeddings
-        mock_model.return_value = model_instance
+    # Réinitialiser et configurer le mock
+    mock_sentence_transformer.encode.reset_mock()
+    mock_sentence_transformer.encode.side_effect = None
+    mock_sentence_transformer.encode.return_value = np.zeros((len(mock_processed_docs), EXPECTED_DIMENSION), dtype=np.float32)
 
-        # Créer l'index
-        index, mapping = create_faiss_index(mock_processed_docs, mock_model())
+    # Créer l'index
+    index, mapping = create_faiss_index(mock_processed_docs, mock_sentence_transformer)
 
-        # Simuler une recherche
-        query_embedding = np.random.rand(1, 128).astype("float32")
-        distances, labels = index.search(x=query_embedding, k=2)
+    # Simuler une recherche
+    query_embedding = np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
+    distances, labels = index.search(x=query_embedding, k=2)
 
-        # Vérifications
-        assert len(labels[0]) == 2  # Nombre de résultats
-        assert len(distances[0]) == 2  # Nombre de distances
-        assert all(i in mapping for i in labels[0])  # IDs valides
+    # Vérifications
+    assert len(labels[0]) == 2  # Nombre de résultats
+    assert len(distances[0]) == 2  # Nombre de distances
+    assert all(str(i) in mapping for i in labels[0])  # IDs valides
 
 
 @pytest.mark.parametrize(
@@ -364,14 +338,9 @@ def test_faiss_search_functionality(mock_processed_docs, mock_embeddings):
         [{"numeric_id": 1, "text": "Test"}],  # Manque metadata
     ],
 )
-def test_create_faiss_index_invalid_input(bad_input):
+def test_create_faiss_index_invalid_input(bad_input, mock_sentence_transformer):
     """
     Teste la gestion des entrées invalides dans create_faiss_index.
     """
-    with (
-        patch("sentence_transformers.SentenceTransformer") as mock_model,
-        pytest.raises((ValueError, AttributeError)),
-    ):
-        model_instance = MagicMock()
-        mock_model.return_value = model_instance
-        create_faiss_index(bad_input, mock_model())
+    with pytest.raises((ValueError, AttributeError)):
+        create_faiss_index(bad_input, mock_sentence_transformer)
