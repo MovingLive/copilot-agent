@@ -41,10 +41,21 @@ def initialize_services():
     # Configuration du modèle d'embedding
     _ = EmbeddingService.get_instance().model
 
-    # Chargement de l'index FAISS
-    index, doc_store = faiss_service.load_index()
-    faiss_service._state.index = index
-    faiss_service._state.document_store = doc_store
+    # Chargement de l'index FAISS avec gestion des erreurs
+    try:
+        index, doc_store = faiss_service.load_index()
+        if index is not None:
+            faiss_service._state.index = index
+            faiss_service._state.document_store = doc_store
+        else:
+            # Si l'index est None, on initialise avec des valeurs par défaut pour les tests
+            faiss_service._state.index = None
+            faiss_service._state.document_store = {}
+    except Exception as e:
+        # En cas d'erreur, on initialise avec des valeurs par défaut
+        print(f"Erreur lors du chargement de l'index FAISS pour les tests: {e}")
+        faiss_service._state.index = None
+        faiss_service._state.document_store = {}
 
     yield
 

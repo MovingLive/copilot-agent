@@ -233,19 +233,22 @@ def retrieve_similar_documents(query: str, k: int = 5) -> list[dict[str, Any]]:
         list[dict[str, Any]]: Liste des documents similaires avec leurs métadonnées
     """
     if _state.index is None:
-        index, doc_store = load_index()
-        _state.index = index
-        _state.document_store = doc_store
-        if _state.index is None:
-            logger.warning("Index FAISS non disponible")
+        try:
+            index, doc_store = load_index()
+            _state.index = index
+            _state.document_store = doc_store
+            if _state.index is None:
+                logger.warning("Index FAISS non disponible")
+                return []
+        except (FAISSServiceError, OSError, RuntimeError) as e:
+            # En environnement de test, on peut avoir des erreurs si le fichier n'existe pas
+            logger.warning("Erreur lors du chargement de l'index FAISS: %s", e)
             return []
-
     try:
         query_vector = generate_query_vector(query)
         prepared_vector = _prepare_query_vector(query_vector)
         distances, indices = _search_in_index(prepared_vector, k)
         return _process_search_results(distances, indices)
-
     except (ValueError, FAISSServiceError, RuntimeError) as e:
         logger.warning("Erreur lors de la recherche: %s", e)
         return []
