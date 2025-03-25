@@ -61,12 +61,6 @@ fixable = ["ALL"]
 unfixable = []
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
-# Enable isort rules
-isort = true
-
-# Enable pydocstyle rules
-pydocstyle = true
-
 [format]
 quote-style = "double"
 indent-style = "space"
