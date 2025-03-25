@@ -48,8 +48,9 @@ select = [
     "PL",  # pylint
 ]
 
-# Enable pydocstyle rules
-pydocstyle = true
+# Configurer pydocstyle via la section appropriée
+[lint.pydocstyle]
+convention = "google"
 
 ignore = [
     "E501",  # line too long (géré par Black)
@@ -72,9 +73,6 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 docstring-code-format = true
 docstring-code-line-length = "dynamic"
-
-[pydocstyle]
-convention = "google"
 
 [isort]
 known-first-party = ["app"]
