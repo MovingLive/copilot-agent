@@ -54,7 +54,6 @@ jobs:
 
       - name: Run Python Linters
         run: |
-          poetry add --group dev ruff
           poetry run ruff check --exclude tests/ --output-format=github .
           poetry run ruff format --exclude tests/ --check .
 
