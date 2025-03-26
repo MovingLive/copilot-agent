@@ -24,17 +24,49 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     yield loop
     loop.close()
 
+# Classe Mock pour SentenceTransformer
+class MockSentenceTransformer(MagicMock):
+    """Mock de SentenceTransformer qui hérite de MagicMock pour supporter toutes les méthodes de mock."""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.encode = MagicMock()
+        self.encode.return_value = np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
+        self.get_sentence_embedding_dimension = MagicMock(return_value=EXPECTED_DIMENSION)
+
+# Cette fixture sera appliquée à TOUS les tests (autouse=True) pour bloquer les requêtes HF
+@pytest.fixture(scope="session", autouse=True)
+def block_huggingface_requests():
+    """
+    Bloque toutes les requêtes vers Hugging Face pour éviter les erreurs SSL.
+    Remplace complètement la classe SentenceTransformer par un mock.
+    """
+    # Remplacer complètement la classe SentenceTransformer par notre mock
+    with patch('sentence_transformers.SentenceTransformer', MockSentenceTransformer):
+        # Mock des requêtes HTTP à bas niveau pour éviter toute connexion réseau
+        with patch('requests.get', return_value=MagicMock(status_code=200)):
+            with patch('requests.post', return_value=MagicMock(status_code=200)):
+                # Bloquer aussi les requêtes SSL directes
+                with patch('ssl.get_server_certificate', return_value="MOCK_CERTIFICATE"):
+                    yield
+
 @pytest.fixture(scope="function")
 def mock_sentence_transformer():
     """
     Mock du modèle SentenceTransformer pour les tests.
-    Chaque test peut configurer son propre comportement du mock.
+    Fournit un mock complet qui ne tente pas de télécharger ou vérifier le modèle.
     """
-    mock_model = MagicMock()
-    mock_model.encode.return_value = np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
-    mock_model.get_sentence_embedding_dimension.return_value = EXPECTED_DIMENSION
-
+    mock_model = MockSentenceTransformer()
+    
+    # Réinitialisation du singleton pour les tests
+    EmbeddingService._instance = None
+    EmbeddingService._model = None
+    
+    # Patch complet de SentenceTransformer pour éviter toute initialisation réelle
     with patch('sentence_transformers.SentenceTransformer', return_value=mock_model):
+        # Pré-initialiser le singleton pour éviter une nouvelle instanciation pendant le test
+        EmbeddingService._instance = EmbeddingService()
+        EmbeddingService._model = mock_model
         yield mock_model
 
 @pytest.fixture(scope="function", autouse=True)
