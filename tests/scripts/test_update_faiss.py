@@ -4,15 +4,16 @@ Tests unitaires pour le script update_faiss.py
 
 import json
 import os
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import numpy as np
 import pytest
 from moto import mock_aws
 import faiss
 
 from app.core.config import settings
-from scripts.update_faiss import create_faiss_index, main, save_faiss_index
+from scripts.update_faiss import create_faiss_index, main, save_faiss_index, load_embedding_model
 from app.services.embedding_service import EXPECTED_DIMENSION
+from tests.conftest import MockSentenceTransformer
 
 # Les fixtures pour les tests
 @pytest.fixture
@@ -58,8 +59,24 @@ def mock_env_vars():
 
 @pytest.fixture
 def mock_embeddings():
-    """Fixture pour simuler les embeddings."""
-    return np.zeros((2, EXPECTED_DIMENSION), dtype=np.float32)
+    """Fixture pour simuler les embeddings. Retourne un seul embedding par défaut."""
+    return np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
+
+
+# Patch séparé pour load_embedding_model pour s'assurer qu'il retourne notre mock cohérent
+@pytest.fixture
+def patch_load_embedding_model(mock_sentence_transformer):
+    """Patch la fonction load_embedding_model pour qu'elle retourne notre mock"""
+    with patch('sentence_transformers.SentenceTransformer', return_value=mock_sentence_transformer):
+        yield mock_sentence_transformer
+
+
+@pytest.fixture
+def mock_load_embedding_model(monkeypatch):
+    """Fixture qui patche load_embedding_model pour les tests spécifiques"""
+    mock = MockSentenceTransformer()
+    monkeypatch.setattr('scripts.update_faiss.load_embedding_model', lambda *args, **kwargs: mock)
+    return mock
 
 
 def test_create_faiss_index(mock_processed_docs, mock_sentence_transformer):
@@ -115,7 +132,7 @@ def test_save_faiss_index(tmp_path, mock_processed_docs):
 
 
 def test_main_workflow(
-    mock_documents, mock_processed_docs, mock_embeddings, mock_env_vars, mock_sentence_transformer
+    mock_documents, mock_processed_docs, mock_embeddings, mock_env_vars, patch_load_embedding_model
 ):
     """
     Teste le flux principal du script.
@@ -126,13 +143,12 @@ def test_main_workflow(
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
         patch("scripts.update_faiss.save_faiss_index") as mock_save,
         patch("scripts.update_faiss.export_data") as mock_export,
-        patch("sentence_transformers.SentenceTransformer", return_value=mock_sentence_transformer),
     ):
         # Configuration des mocks
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = mock_documents
         mock_process.return_value = mock_processed_docs
-        mock_sentence_transformer.encode.return_value = mock_embeddings
+        patch_load_embedding_model.encode.return_value = mock_embeddings
 
         # Exécution de la fonction principale
         main()
@@ -146,7 +162,7 @@ def test_main_workflow(
 
 
 @mock_aws
-def test_s3_export(mock_env_vars, mock_embeddings, mock_sentence_transformer):
+def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model):
     """
     Teste l'exportation des données vers S3.
     """
@@ -162,13 +178,12 @@ def test_s3_export(mock_env_vars, mock_embeddings, mock_sentence_transformer):
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
         patch("scripts.update_faiss.save_faiss_index"),
         patch("scripts.update_faiss.export_data") as mock_export,
-        patch("sentence_transformers.SentenceTransformer", return_value=mock_sentence_transformer),
     ):
         # Configuration des mocks
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = [{"text": "test"}]
         mock_process.return_value = [{"numeric_id": 1, "text": "test", "metadata": {}}]
-        mock_sentence_transformer.encode.return_value = mock_embeddings
+        patch_load_embedding_model.encode.return_value = mock_embeddings
 
         # Exécution de la fonction principale
         main()
@@ -196,7 +211,7 @@ def test_error_handling(mock_env_vars):
         mock_error.assert_called()
 
 
-def test_empty_documents(mock_env_vars, mock_embeddings, mock_sentence_transformer):
+def test_empty_documents(mock_env_vars, mock_embeddings, patch_load_embedding_model):
     """
     Teste le comportement avec une liste de documents vide.
     """
@@ -206,7 +221,6 @@ def test_empty_documents(mock_env_vars, mock_embeddings, mock_sentence_transform
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
         patch("scripts.update_faiss.save_faiss_index") as mock_save,
         patch("scripts.update_faiss.export_data") as mock_export,
-        patch("sentence_transformers.SentenceTransformer", return_value=mock_sentence_transformer),
         pytest.raises(ValueError, match="La liste de documents est vide"),
     ):
         # Configuration des mocks
@@ -214,10 +228,29 @@ def test_empty_documents(mock_env_vars, mock_embeddings, mock_sentence_transform
         mock_read.return_value = []
         mock_process.return_value = []
         empty_embeddings = np.array([]).reshape((0, EXPECTED_DIMENSION))
-        mock_sentence_transformer.encode.return_value = empty_embeddings
+        patch_load_embedding_model.encode.return_value = empty_embeddings
 
         # Exécution de la fonction principale
         main()
+
+
+def test_load_embedding_model_mock():
+    """
+    Teste que load_embedding_model est bien mocker et ne tente pas de télécharger le modèle.
+    """
+    # On s'attend à ce que cette fonction ne lève pas d'exception car elle est patchée
+    # par la fixture block_huggingface_requests qui est autouse=True
+    model = load_embedding_model()
+    
+    # Au lieu de vérifier le type exact, on vérifie que c'est bien un objet mock
+    # qui possède les méthodes attendues
+    assert hasattr(model, 'encode')
+    assert hasattr(model, 'get_sentence_embedding_dimension')
+    assert callable(model.encode)
+    # Vérifions que la méthode encode retourne un array de la bonne dimension
+    test_text = "Test sentence"
+    result = model.encode(test_text)
+    assert result.shape[1] == EXPECTED_DIMENSION
 
 
 @pytest.mark.parametrize(
@@ -228,7 +261,7 @@ def test_empty_documents(mock_env_vars, mock_embeddings, mock_sentence_transform
         {"ENV": "prod", "S3_BUCKET_NAME": ""},  # Nom de bucket vide en prod
     ],
 )
-def test_missing_environment_variables(env_vars, mock_embeddings, mock_sentence_transformer):
+def test_missing_environment_variables(env_vars, mock_embeddings, patch_load_embedding_model):
     """
     Teste le comportement avec des variables d'environnement manquantes.
     """
@@ -242,8 +275,8 @@ def test_missing_environment_variables(env_vars, mock_embeddings, mock_sentence_
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = [{"text": "test"}]
         mock_process.return_value = [{"numeric_id": 1, "text": "test", "metadata": {}}]
-        mock_sentence_transformer.encode.reset_mock()  # Réinitialiser le mock
-        mock_sentence_transformer.encode.return_value = mock_embeddings
+        patch_load_embedding_model.encode.reset_mock()  # Réinitialiser le mock
+        patch_load_embedding_model.encode.return_value = mock_embeddings
 
         # La fonction devrait utiliser les valeurs par défaut
         main()

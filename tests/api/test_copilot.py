@@ -32,11 +32,9 @@ async def test_handle_copilot_query_success(mock_sentence_transformer):
     async def mock_generate_streaming_response(req_data, token):
         yield b'{"response": "test"}'
 
-    # Configurer le mock pour generate_query_vector
-    mock_sentence_transformer.encode.return_value = np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
-
     with (
         patch("app.api.copilot.get_github_user", side_effect=mock_get_github_user),
+        patch("app.services.embedding_service.generate_query_vector", return_value=np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)),
         patch("app.services.faiss_service.retrieve_similar_documents", return_value=[
             {"content": "FastAPI est un framework moderne pour Python"}
         ]),
@@ -62,11 +60,9 @@ async def test_handle_copilot_query_with_context(mock_sentence_transformer):
     async def mock_generate_streaming_response(req_data, token):
         yield b'{"response": "test with context"}'
 
-    # Configurer le mock pour generate_query_vector
-    mock_sentence_transformer.encode.return_value = np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
-
     with (
         patch("app.api.copilot.get_github_user", side_effect=mock_get_github_user),
+        patch("app.services.embedding_service.generate_query_vector", return_value=np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)),
         patch("app.services.faiss_service.retrieve_similar_documents", return_value=[
             {"content": "FastAPI est un framework moderne"},
             {"content": "Exemple d'utilisation de FastAPI"}
