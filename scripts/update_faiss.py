@@ -28,6 +28,7 @@ sys.path.append(
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 from app.core.config import settings
+from app.services.embedding_service import EXPECTED_DIMENSION
 from app.utils import (
     clone_or_update_repo,
     export_data,
@@ -41,6 +42,21 @@ load_dotenv()
 
 # --- Configuration du logging ---
 logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
+
+
+def load_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
+    """Charge le modèle d'embedding SentenceTransformer.
+
+    Cette fonction est séparée pour faciliter le mocking pendant les tests.
+
+    Args:
+        model_name: Nom du modèle à charger
+
+    Returns:
+        Instance de SentenceTransformer
+    """
+    logging.info("Chargement du modèle d'embedding '%s'...", model_name)
+    return SentenceTransformer(model_name)
 
 
 def create_faiss_index(
@@ -65,8 +81,9 @@ def create_faiss_index(
     try:
         texts = [doc["text"] for doc in processed_docs]
         numeric_ids = [doc["numeric_id"] for doc in processed_docs]
+        # Convertir les IDs en str dès la création du mapping
         metadata_mapping = {
-            doc["numeric_id"]: doc["metadata"] for doc in processed_docs
+            str(doc["numeric_id"]): doc["metadata"] for doc in processed_docs
         }
     except (KeyError, TypeError) as e:
         raise ValueError(
@@ -82,7 +99,7 @@ def create_faiss_index(
         raise ValueError("Aucun embedding n'a été généré")
 
     # Utilisation de la dimension du modèle ou 384 par défaut (comme dans embedding_service.py)
-    dimension = embeddings.shape[1] if len(embeddings.shape) > 1 else 384
+    dimension = embeddings.shape[1] if len(embeddings.shape) > 1 else EXPECTED_DIMENSION
     logging.info("Dimension des embeddings: %d", dimension)
 
     # Création de l'index FAISS
@@ -92,7 +109,12 @@ def create_faiss_index(
     # Conversion en numpy arrays et ajout à l'index
     np_embeddings = np.array(embeddings).astype("float32")
     np_ids = np.array(numeric_ids, dtype=np.int64)
-    # Correction : utilisation de add_with_ids sans noms de paramètres
+
+    # S'assurer que les embeddings sont en 2D
+    if len(np_embeddings.shape) == 1:
+        np_embeddings = np_embeddings.reshape(1, -1)
+        np_ids = np_ids.reshape(-1)  # S'assurer que les IDs sont en 1D
+
     # pylint: disable=E1120
     index_id_map.add_with_ids(np_embeddings, np_ids)
     logging.info("Index FAISS créé et rempli.")
@@ -144,9 +166,8 @@ def main() -> None:
     documents = read_markdown_files(repo_dir)
     processed_docs = process_documents_for_faiss(documents, settings.SEGMENT_MAX_LENGTH)
 
-    # Étape 3 : Charger le modèle d'embedding
-    logging.info("Chargement du modèle d'embedding 'all-MiniLM-L6-v2'...")
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    # Étape 3 : Charger le modèle d'embedding (maintenant via la fonction séparée)
+    model = load_embedding_model()
 
     # Étape 4 : Générer l'index FAISS et le mapping des métadonnées
     index, metadata_mapping = create_faiss_index(processed_docs, model)

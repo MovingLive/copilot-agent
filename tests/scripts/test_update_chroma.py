@@ -1,15 +1,15 @@
 """
 Tests unitaires pour le script update_chroma.py
 """
-
 import os
 import subprocess
 from unittest.mock import MagicMock, patch
-
+import numpy as np
 import pytest
 from chromadb.config import Settings
-from moto import mock_aws
 
+from moto import mock_aws
+from app.services.embedding_service import EXPECTED_DIMENSION
 from scripts.update_chroma import (
     CHROMA_PERSIST_DIR,
     COLLECTION_NAME,
@@ -19,6 +19,19 @@ from scripts.update_chroma import (
     main,
 )
 
+@pytest.fixture
+def mock_embedding_function(mock_sentence_transformer):
+    """Mock de la fonction d'embedding de ChromaDB."""
+    mock_ef = MagicMock()
+
+    def mock_encode(texts):
+        # Utiliser le même mock que pour FAISS
+        if isinstance(texts, list):
+            return np.zeros((len(texts), EXPECTED_DIMENSION), dtype=np.float32)
+        return np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)
+
+    mock_ef.__call__ = MagicMock(side_effect=mock_encode)
+    return mock_ef
 
 @pytest.fixture
 def mock_documents():
@@ -79,7 +92,7 @@ def mock_env_vars():
 
 
 def test_main_workflow(
-    mock_documents, mock_processed_docs, mock_chromadb_client, mock_env_vars
+    mock_documents, mock_processed_docs, mock_chromadb_client, mock_env_vars, mock_embedding_function
 ):
     """
     Teste le flux principal de la fonction main.
@@ -92,15 +105,14 @@ def test_main_workflow(
         patch("scripts.update_chroma.export_data") as mock_export,
         patch(
             "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
-        ) as mock_ef,
-        patch("subprocess.run") as mock_subprocess_run,
+        ) as mock_ef_class,
     ):
         # Configuration des mocks
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = mock_documents
         mock_process.return_value = mock_processed_docs
         mock_client_class.return_value = mock_chromadb_client
-        mock_subprocess_run.return_value = MagicMock(returncode=0)
+        mock_ef_class.return_value = mock_embedding_function
 
         # Exécution de la fonction principale
         main()
@@ -114,7 +126,7 @@ def test_main_workflow(
         mock_export.assert_called_once()
 
 
-def test_chroma_collection_creation(mock_chromadb_client, mock_env_vars):
+def test_chroma_collection_creation(mock_chromadb_client, mock_env_vars, mock_embedding_function):
     """
     Teste la création et la configuration de la collection ChromaDB.
     """
@@ -122,9 +134,10 @@ def test_chroma_collection_creation(mock_chromadb_client, mock_env_vars):
         patch("scripts.update_chroma.chromadb.Client") as mock_client_class,
         patch(
             "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
-        ) as mock_ef,
+        ) as mock_ef_class,
     ):
         mock_client_class.return_value = mock_chromadb_client
+        mock_ef_class.return_value = mock_embedding_function
 
         # Tente de supprimer la collection existante
         mock_chromadb_client.delete_collection.side_effect = ValueError()
@@ -138,12 +151,12 @@ def test_chroma_collection_creation(mock_chromadb_client, mock_env_vars):
         )
         mock_chromadb_client.create_collection.assert_called_once_with(
             name=COLLECTION_NAME,
-            embedding_function=mock_ef.return_value,
+            embedding_function=mock_embedding_function,
         )
 
 
 @mock_aws
-def test_s3_export(mock_env_vars):
+def test_s3_export(mock_env_vars, mock_embedding_function):
     """
     Teste l'exportation des données vers S3.
     """
@@ -159,7 +172,12 @@ def test_s3_export(mock_env_vars):
         patch("scripts.update_chroma.process_documents_for_chroma"),
         patch("scripts.update_chroma.chromadb.Client"),
         patch("scripts.update_chroma.export_data") as mock_export,
+        patch(
+            "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
+        ) as mock_ef_class,
     ):
+        mock_ef_class.return_value = mock_embedding_function
+
         # Exécution de la fonction principale
         main()
 
@@ -167,7 +185,7 @@ def test_s3_export(mock_env_vars):
         mock_export.assert_called_once()
 
 
-def test_document_processing(mock_documents, mock_env_vars):
+def test_document_processing(mock_documents, mock_env_vars, mock_embedding_function):
     """
     Teste le traitement des documents.
     """
@@ -177,9 +195,13 @@ def test_document_processing(mock_documents, mock_env_vars):
         patch("scripts.update_chroma.process_documents_for_chroma") as mock_process,
         patch("scripts.update_chroma.chromadb.Client"),
         patch("scripts.update_chroma.export_data"),
+        patch(
+            "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
+        ) as mock_ef_class,
     ):
         mock_read.return_value = mock_documents
         mock_process.return_value = []
+        mock_ef_class.return_value = mock_embedding_function
 
         # Exécution de la fonction principale
         main()
@@ -208,7 +230,7 @@ def test_error_handling(mock_env_vars):
         mock_error.assert_called()
 
 
-def test_batch_processing(mock_chromadb_client, mock_env_vars):
+def test_batch_processing(mock_chromadb_client, mock_env_vars, mock_embedding_function):
     """
     Teste le traitement par lots des documents dans ChromaDB.
     """
@@ -228,10 +250,14 @@ def test_batch_processing(mock_chromadb_client, mock_env_vars):
         patch("scripts.update_chroma.process_documents_for_chroma") as mock_process,
         patch("scripts.update_chroma.chromadb.Client") as mock_client_class,
         patch("scripts.update_chroma.export_data"),
+        patch(
+            "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
+        ) as mock_ef_class,
     ):
         mock_process.return_value = large_processed_docs
         mock_client_class.return_value = mock_chromadb_client
         collection = mock_chromadb_client.create_collection.return_value
+        mock_ef_class.return_value = mock_embedding_function
 
         # Exécution de la fonction principale
         main()
@@ -240,7 +266,7 @@ def test_batch_processing(mock_chromadb_client, mock_env_vars):
         assert collection.add.call_count == 2
 
 
-def test_empty_documents(mock_chromadb_client, mock_env_vars):
+def test_empty_documents(mock_chromadb_client, mock_env_vars, mock_embedding_function):
     """
     Teste le comportement avec une liste de documents vide.
     """
@@ -250,11 +276,15 @@ def test_empty_documents(mock_chromadb_client, mock_env_vars):
         patch("scripts.update_chroma.process_documents_for_chroma") as mock_process,
         patch("scripts.update_chroma.chromadb.Client") as mock_client_class,
         patch("scripts.update_chroma.export_data"),
+        patch(
+            "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
+        ) as mock_ef_class,
     ):
         mock_read.return_value = []
         mock_process.return_value = []
         mock_client_class.return_value = mock_chromadb_client
         collection = mock_chromadb_client.create_collection.return_value
+        mock_ef_class.return_value = mock_embedding_function
 
         # Exécution de la fonction principale
         main()
@@ -263,15 +293,19 @@ def test_empty_documents(mock_chromadb_client, mock_env_vars):
         collection.add.assert_not_called()
 
 
-def test_collection_deletion_error(mock_chromadb_client, mock_env_vars):
+def test_collection_deletion_error(mock_chromadb_client, mock_env_vars, mock_embedding_function):
     """
     Teste la gestion d'erreur lors de la suppression de la collection.
     """
     with (
         patch("scripts.update_chroma.clone_or_update_repo"),
         patch("scripts.update_chroma.chromadb.Client") as mock_client_class,
+        patch(
+            "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
+        ) as mock_ef_class,
     ):
         mock_client_class.return_value = mock_chromadb_client
+        mock_ef_class.return_value = mock_embedding_function
         mock_chromadb_client.delete_collection.side_effect = ValueError(
             "Collection not found"
         )
@@ -284,7 +318,7 @@ def test_collection_deletion_error(mock_chromadb_client, mock_env_vars):
             )
 
 
-def test_local_environment(mock_chromadb_client):
+def test_local_environment(mock_chromadb_client, mock_embedding_function):
     """
     Teste le comportement en environnement local.
     """
@@ -295,8 +329,12 @@ def test_local_environment(mock_chromadb_client):
         patch("scripts.update_chroma.process_documents_for_chroma"),
         patch("scripts.update_chroma.chromadb.Client") as mock_client_class,
         patch("scripts.update_chroma.export_data") as mock_export,
+        patch(
+            "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
+        ) as mock_ef_class,
     ):
         mock_client_class.return_value = mock_chromadb_client
+        mock_ef_class.return_value = mock_embedding_function
 
         # Exécution de la fonction principale
         main()
@@ -313,7 +351,7 @@ def test_local_environment(mock_chromadb_client):
         {"ENV": "prod", "S3_BUCKET_NAME": ""},  # Nom de bucket vide en prod
     ],
 )
-def test_missing_environment_variables(env_vars, mock_chromadb_client):
+def test_missing_environment_variables(env_vars, mock_chromadb_client, mock_embedding_function):
     """
     Teste le comportement avec des variables d'environnement manquantes.
     """
@@ -321,8 +359,12 @@ def test_missing_environment_variables(env_vars, mock_chromadb_client):
         patch.dict(os.environ, env_vars, clear=True),
         patch("scripts.update_chroma.clone_or_update_repo"),
         patch("scripts.update_chroma.chromadb.Client") as mock_client_class,
+        patch(
+            "chromadb.utils.embedding_functions.SentenceTransformerEmbeddingFunction"
+        ) as mock_ef_class,
     ):
         mock_client_class.return_value = mock_chromadb_client
+        mock_ef_class.return_value = mock_embedding_function
 
         # La fonction devrait utiliser les valeurs par défaut
         main()  # Ne devrait pas lever d'exception
