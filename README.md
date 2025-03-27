@@ -4,11 +4,7 @@
 
 ### Objectif principal de l'API
 
-Créer une API RESTful pour interagir avec le modèle d'embedding et la base de données vectorielle.
-
-### Contexte de l'API
-
-L'API est construite avec FastAPI. Elle permet de gérer les requêtes HTTP, d'interagir avec la base de données vectorielle pour récupérer les embeddings et de fournir cela en contexte au LLM de GitHub Copilot.
+API RESTful avec FastAPI pour un assistant GitHub Copilot. Elle récupère des embeddings issus de fichiers Markdown via FAISS et Chroma DB, enrichit les requêtes utilisateurs avec des données contextuelles, et utilise un LLM pour générer des réponses. Un script automatisé met à jour quotidiennement l'index et synchronise les données vers AWS S3.
 
 ### Architecture de l'API
 
