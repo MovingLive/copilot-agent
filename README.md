@@ -178,6 +178,10 @@ poetry env activate
 Utiliser le launcher de VSCode pour démarrer le serveur.
 Puis accéder à l'API via `http://localhost:8000/` pour confirmer que tout va bien.
 
+- Ouvrir le port 8000 dans l'onglet `PORTS` de VSCode
+- Rendre l'URL Public
+- Copier l'URL publique et la coller dans la GitHub App mode Copilot Extension
+
 ### Vérification de l'état de l'API
 
 Vous pouvez vérifier si l'API fonctionne correctement en envoyant une requête de test à l'un des points de terminaison définis.
