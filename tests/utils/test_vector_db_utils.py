@@ -2,7 +2,8 @@
 
 import pytest
 
-from app.utils.vector_db_utils import process_documents_for_chroma, process_documents_for_faiss, segment_text
+from app.utils.vector_db_utils import process_documents_for_chroma, process_documents_for_faiss
+from app.utils.markdown_utils import segment_text
 
 def test_process_documents_for_chroma_empty() -> None:
     """Test avec une liste de documents vide."""

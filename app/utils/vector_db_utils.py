@@ -30,7 +30,11 @@ def process_documents_for_chroma(
             entry = {
                 "id": document_id,
                 "text": segment,
-                "metadata": {"file_path": file_path, "segment_index": idx},
+                "metadata": {
+                    "source": file_path, 
+                    "segment_index": idx,
+                    "segment_id": idx
+                },
             }
             processed.append(entry)
 
@@ -65,6 +69,7 @@ def process_documents_for_faiss(
                     "original_id": f"{Path(file_path).stem}_{idx}",
                     "file_path": file_path,
                     "segment_index": idx,
+                    "segment_id": idx,
                     "content": segment,
                 },
             }
