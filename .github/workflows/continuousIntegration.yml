@@ -34,6 +34,7 @@ jobs:
       SSL_CERT_FILE: ""
       REQUESTS_CA_BUNDLE: ""
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      TEMP_FAISS_DIR: ${{ github.workspace }}/temp/faiss_index
 
     steps:
       - name: Checkout code
