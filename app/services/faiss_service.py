@@ -379,6 +379,7 @@ def save_faiss_index(
     try:
         if not os.path.exists(directory):
             os.makedirs(directory)
+            logger.info(f"Répertoire créé: {directory}")
 
         # Convertir les clés en str pour la sérialisation JSON
         str_mapping = {str(k): v for k, v in metadata_mapping.items()}
@@ -391,10 +392,12 @@ def save_faiss_index(
 
         # Sauvegarder l'index et le mapping
         faiss.write_index(index, index_file_path)
+        logger.info(f"Index FAISS sauvegardé: {index_file_path}")
+
         with open(mapping_file_path, "w", encoding="utf-8") as f:
             json.dump(str_mapping, f, ensure_ascii=False, indent=2)
+        logger.info(f"Mapping sauvegardé: {mapping_file_path}")
 
-        logger.info("Index FAISS et mapping sauvegardés avec succès.")
     except (PermissionError, OSError) as e:
         logger.error(f"Erreur lors de la sauvegarde de l'index : {e}")
         raise
