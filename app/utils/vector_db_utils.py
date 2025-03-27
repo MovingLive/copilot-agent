@@ -31,9 +31,9 @@ def process_documents_for_chroma(
                 "id": document_id,
                 "text": segment,
                 "metadata": {
-                    "source": file_path, 
+                    "source": file_path,
                     "segment_index": idx,
-                    "segment_id": idx
+                    "segment_id": idx,
                 },
             }
             processed.append(entry)
