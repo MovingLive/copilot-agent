@@ -4,7 +4,6 @@ Ce module contient les tests unitaires pour le service de cache vectoriel.
 """
 
 import time
-from unittest.mock import patch
 import numpy as np
 import pytest
 
@@ -23,10 +22,10 @@ def test_embedding_cache_basic(vector_cache):
     """Test les opérations basiques du cache d'embeddings."""
     text = "test text"
     vector = np.array([1.0, 2.0, 3.0])
-    
+
     # Test cache miss initial
     assert vector_cache.get_embedding(text) is None
-    
+
     # Test stockage et récupération
     vector_cache.store_embedding(text, vector)
     cached_vector = vector_cache.get_embedding(text)
@@ -37,10 +36,10 @@ def test_results_cache_basic(vector_cache):
     """Test les opérations basiques du cache de résultats."""
     query = "test query"
     results = [{"id": 1, "score": 0.9}]
-    
+
     # Test cache miss initial
     assert vector_cache.get_search_results(query) is None
-    
+
     # Test stockage et récupération
     vector_cache.store_search_results(query, results)
     cached_results = vector_cache.get_search_results(query)
@@ -52,10 +51,10 @@ def test_cache_eviction(vector_cache):
     # Remplir le cache au-delà de sa capacité (max_size=2)
     texts = ["text1", "text2", "text3"]
     vectors = [np.array([i]) for i in range(3)]
-    
+
     for text, vector in zip(texts, vectors):
         vector_cache.store_embedding(text, vector)
-    
+
     # Le premier élément devrait avoir été évincé
     assert vector_cache.get_embedding("text1") is None
     assert vector_cache.get_embedding("text2") is not None
@@ -66,10 +65,10 @@ def test_ttl_expiration(vector_cache):
     """Test l'expiration TTL des entrées du cache."""
     query = "test query"
     results = [{"id": 1, "score": 0.9}]
-    
+
     vector_cache.store_search_results(query, results)
     assert vector_cache.get_search_results(query) == results
-    
+
     # Attendre que le TTL expire (ttl_seconds=1)
     time.sleep(1.1)
     assert vector_cache.get_search_results(query) is None
@@ -79,12 +78,12 @@ def test_cache_stats(vector_cache):
     """Test la collecte des statistiques du cache."""
     text = "test text"
     vector = np.array([1.0, 2.0, 3.0])
-    
+
     # Générer quelques hits et misses
     vector_cache.get_embedding(text)  # Miss
     vector_cache.store_embedding(text, vector)
     vector_cache.get_embedding(text)  # Hit
-    
+
     stats = vector_cache.get_cache_stats()
     assert stats["hit_count"] == 1
     assert stats["miss_count"] == 1
@@ -97,10 +96,10 @@ def test_cache_clear(vector_cache):
     """Test le nettoyage complet du cache."""
     text = "test text"
     vector = np.array([1.0, 2.0, 3.0])
-    
+
     vector_cache.store_embedding(text, vector)
     vector_cache.clear()
-    
+
     assert vector_cache.get_embedding(text) is None
     stats = vector_cache.get_cache_stats()
     assert stats["embedding_cache_size"] == 0
@@ -115,9 +114,9 @@ def test_singleton_pattern():
 
 
 @pytest.mark.parametrize("text,expected_hash", [
-    ("test", "098f6bcd4621d373cade4e832627b4f6"),
-    ("", "d41d8cd98f00b204e9800998ecf8427e"),
-    ("12345", "827ccb0eea8a706c4c34a16891f84e7b"),
+    ("test", "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
+    ("", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
+    ("12345", "5994471abb01112afcc18159f6cc74b4f511b99806da59b3caf5a9c173cacfc5"),
 ])
 def test_text_hashing(vector_cache, text, expected_hash):
     """Test la génération cohérente des hashs de texte."""

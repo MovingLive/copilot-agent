@@ -140,7 +140,8 @@ class VectorCache:
         Returns:
             str: Hash du texte
         """
-        return hashlib.md5(text.encode("utf-8")).hexdigest()
+        # Utilisation de SHA-256 au lieu de MD5 pour des raisons de sécurité
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def _update_access(self, key: str) -> None:
         """Met à jour l'horodatage du dernier accès à une entrée.

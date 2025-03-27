@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -62,7 +63,9 @@ _state = FAISSState()
 
 def _get_local_path(filename: str) -> str:
     """Construit le chemin local pour un fichier."""
-    base_dir = settings.LOCAL_OUTPUT_DIR if is_local_environment() else "/tmp"
+    base_dir = (
+        settings.LOCAL_OUTPUT_DIR if is_local_environment() else tempfile.mkdtemp()
+    )
     return str(Path(base_dir) / filename)
 
 
