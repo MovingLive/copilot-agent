@@ -4,16 +4,35 @@ Tests unitaires pour le script update_faiss.py
 
 import json
 import os
+import unittest.mock as mock
 from unittest.mock import patch, MagicMock
 import numpy as np
 import pytest
 from moto import mock_aws
 import faiss
 
-from app.core.config import settings
-from scripts.update_faiss import create_faiss_index, main, save_faiss_index, load_embedding_model
+from scripts.update_faiss import create_faiss_index, main, load_embedding_model
 from app.services.embedding_service import EXPECTED_DIMENSION
 from tests.conftest import MockSentenceTransformer
+
+class MockSettings:
+    """Mock des settings pour les tests."""
+    REPO_URL = "https://github.com/test/repo.git"
+    REPO_DIR = "test_repo"
+    SEGMENT_MAX_LENGTH = 1000
+    TEMP_FAISS_DIR = "/tmp/test_faiss"
+    FAISS_INDEX_FILE = "index.faiss"
+    FAISS_METADATA_FILE = "metadata.json"
+    S3_BUCKET_PREFIX = "faiss_index"
+    S3_BUCKET_NAME = "test-bucket"
+
+@pytest.fixture(autouse=True)
+def mock_settings(monkeypatch):
+    """Fixture pour mocker les settings."""
+    mock_settings = MockSettings()
+    monkeypatch.setattr("scripts.update_faiss.settings", mock_settings)
+    monkeypatch.setattr("app.services.faiss_service.settings", mock_settings)
+    return mock_settings
 
 # Les fixtures pour les tests
 @pytest.fixture
@@ -103,34 +122,6 @@ def test_create_faiss_index(mock_processed_docs, mock_sentence_transformer):
     )
 
 
-def test_save_faiss_index(tmp_path, mock_processed_docs):
-    """
-    Teste la sauvegarde de l'index FAISS et du mapping.
-    """
-    # Créer un index de test
-    dimension = 128
-    index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
-    # pylint: disable=E1120
-    index.add_with_ids(
-        np.random.rand(2, dimension).astype("float32"), np.array([1, 2], dtype=np.int64)
-    )
-
-    # Créer un mapping de test avec des clés str pour correspondre au JSON
-    mapping = {str(doc["numeric_id"]): doc["metadata"] for doc in mock_processed_docs}
-
-    # Sauvegarder l'index
-    save_faiss_index(index, mapping, str(tmp_path))
-
-    # Vérifier que les fichiers ont été créés
-    assert os.path.exists(os.path.join(tmp_path, settings.FAISS_INDEX_FILE))
-    assert os.path.exists(os.path.join(tmp_path, settings.FAISS_METADATA_FILE))
-
-    # Vérifier le contenu du mapping
-    with open(os.path.join(tmp_path, settings.FAISS_METADATA_FILE), "r", encoding="utf-8") as f:
-        saved_mapping = json.load(f)
-    assert saved_mapping == mapping
-
-
 def test_main_workflow(
     mock_documents, mock_processed_docs, mock_embeddings, mock_env_vars, patch_load_embedding_model
 ):
@@ -141,7 +132,7 @@ def test_main_workflow(
         patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
         patch("scripts.update_faiss.read_markdown_files") as mock_read,
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("scripts.update_faiss.save_faiss_index") as mock_save,
+        patch("scripts.update_faiss.save_faiss_index") as mock_save,  # Utiliser le chemin d'import correct
         patch("scripts.update_faiss.export_data") as mock_export,
     ):
         # Configuration des mocks
@@ -154,10 +145,10 @@ def test_main_workflow(
         main()
 
         # Vérifications
-        mock_clone.assert_called_once_with(settings.REPO_URL, settings.REPO_DIR)
+        mock_clone.assert_called_once_with(MockSettings.REPO_URL, MockSettings.REPO_DIR)
         mock_read.assert_called_once_with("test_repo_path")
-        mock_process.assert_called_once_with(mock_documents, settings.SEGMENT_MAX_LENGTH)
-        mock_save.assert_called_once()
+        mock_process.assert_called_once_with(mock_documents, MockSettings.SEGMENT_MAX_LENGTH)
+        mock_save.assert_called_once_with(mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR)
         mock_export.assert_called_once()
 
 
@@ -176,7 +167,7 @@ def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model):
         patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
         patch("scripts.update_faiss.read_markdown_files") as mock_read,
         patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("scripts.update_faiss.save_faiss_index"),
+        patch("scripts.update_faiss.save_faiss_index") as mock_save,
         patch("scripts.update_faiss.export_data") as mock_export,
     ):
         # Configuration des mocks
@@ -188,8 +179,9 @@ def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model):
         # Exécution de la fonction principale
         main()
 
-        # Vérification que l'export a été appelé
-        mock_export.assert_called_once()
+        # Vérifications
+        mock_save.assert_called_once_with(mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR)
+        mock_export.assert_called_once_with(MockSettings.TEMP_FAISS_DIR, MockSettings.S3_BUCKET_PREFIX)
 
 
 def test_error_handling(mock_env_vars):
@@ -241,7 +233,7 @@ def test_load_embedding_model_mock():
     # On s'attend à ce que cette fonction ne lève pas d'exception car elle est patchée
     # par la fixture block_huggingface_requests qui est autouse=True
     model = load_embedding_model()
-    
+
     # Au lieu de vérifier le type exact, on vérifie que c'est bien un objet mock
     # qui possède les méthodes attendues
     assert hasattr(model, 'encode')
@@ -269,17 +261,23 @@ def test_missing_environment_variables(env_vars, mock_embeddings, patch_load_emb
         patch.dict(os.environ, env_vars, clear=True),
         patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
         patch("scripts.update_faiss.read_markdown_files") as mock_read,
-        patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,  # Capturé correctement
+        patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
+        patch("scripts.update_faiss.save_faiss_index") as mock_save,
+        patch("scripts.update_faiss.export_data") as mock_export,
     ):
         # Configuration des mocks
         mock_clone.return_value = "test_repo_path"
         mock_read.return_value = [{"text": "test"}]
         mock_process.return_value = [{"numeric_id": 1, "text": "test", "metadata": {}}]
-        patch_load_embedding_model.encode.reset_mock()  # Réinitialiser le mock
+        patch_load_embedding_model.encode.reset_mock()
         patch_load_embedding_model.encode.return_value = mock_embeddings
 
         # La fonction devrait utiliser les valeurs par défaut
         main()
+
+        # Vérifications
+        mock_save.assert_called_once_with(mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR)
+        mock_export.assert_called_once_with(MockSettings.TEMP_FAISS_DIR, MockSettings.S3_BUCKET_PREFIX)
 
 
 def test_embedding_dimension_consistency(mock_processed_docs, mock_sentence_transformer, mock_env_vars):
@@ -298,22 +296,6 @@ def test_embedding_dimension_consistency(mock_processed_docs, mock_sentence_tran
 
     # Vérifier que les dimensions sont identiques
     assert index1.d == index2.d == EXPECTED_DIMENSION
-
-
-def test_save_faiss_index_file_permissions(tmp_path, mock_processed_docs):
-    """
-    Teste la gestion des erreurs de permissions lors de la sauvegarde.
-    """
-    # Créer un index de test
-    dimension = 128
-    index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
-    mapping = {doc["numeric_id"]: doc["metadata"] for doc in mock_processed_docs}
-
-    with (
-        patch("builtins.open", side_effect=PermissionError),
-        pytest.raises(PermissionError),
-    ):
-        save_faiss_index(index, mapping, str(tmp_path))
 
 
 def test_large_document_batch(mock_sentence_transformer):
@@ -371,12 +353,13 @@ def test_faiss_search_functionality(mock_processed_docs, mock_embeddings, mock_s
         None,
         [],
         [{"numeric_id": 1}],  # Manque text et metadata
-        [{"numeric_id": 1, "text": "Test"}],  # Manque metadata
+        [{"numeric_id": 1, "text": "test"}],  # Manque metadata
+        [{"text": "test", "metadata": {}}],  # Manque numeric_id
     ],
 )
-def test_create_faiss_index_invalid_input(bad_input, mock_sentence_transformer):
+def test_invalid_document_format(bad_input, mock_sentence_transformer):
     """
-    Teste la gestion des entrées invalides dans create_faiss_index.
+    Teste la gestion des documents avec un format invalide.
     """
-    with pytest.raises((ValueError, AttributeError)):
+    with pytest.raises(ValueError):
         create_faiss_index(bad_input, mock_sentence_transformer)

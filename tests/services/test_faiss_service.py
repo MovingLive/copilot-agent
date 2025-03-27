@@ -1,8 +1,11 @@
 import numpy as np
 import pytest
+from unittest.mock import patch, MagicMock
 from app.services import faiss_service
-
-# ...existing code...
+from app.core.config import settings
+import os
+import json
+import faiss
 
 class FakeFaissIndex:
     def __init__(self, d):
@@ -15,6 +18,8 @@ class FakeFaissIndex:
 
 class FakeSettings:
     MIN_SEGMENT_LENGTH = 0  # pour ne pas filtrer les documents
+    FAISS_INDEX_FILE = "index.faiss"
+    FAISS_METADATA_FILE = "metadata.json"
 
 @pytest.fixture(autouse=True)
 def fake_settings(monkeypatch):
@@ -33,7 +38,7 @@ def fake_index_and_store():
 def fake_generate_query_vector(query: str):
     return np.ones((1, 384), dtype="float32")
 
-def fake_search_error(query_vector, k):
+def fake_search_error(query_vector, k, precision_priority=False):
     raise RuntimeError("Search error simulation")
 
 def fake_load_index():
@@ -69,3 +74,48 @@ def test_retrieve_similar_documents_load_index(monkeypatch):
     results = faiss_service.retrieve_similar_documents("Load index", k=3)
     assert len(results) == 1
     assert "Document from load_index" in results[0]["content"]
+
+def test_save_faiss_index(tmp_path, monkeypatch):
+    """
+    Teste la sauvegarde de l'index FAISS et du mapping avec des mocks.
+    """
+    # Créer un index de test
+    dimension = 128
+    index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
+    index.add_with_ids(
+        np.random.rand(2, dimension).astype("float32"), np.array([1, 2], dtype=np.int64)
+    )
+
+    # Créer un mapping de test
+    mapping = {
+        "1": {"source": "docs/test1.md", "segment": 0},
+        "2": {"source": "docs/test2.md", "segment": 0}
+    }
+
+    # Mock des fonctions d'écriture
+    mock_write_index = MagicMock()
+    mock_open = MagicMock()
+
+    monkeypatch.setattr(faiss, "write_index", mock_write_index)
+    monkeypatch.setattr("builtins.open", mock_open)
+
+    # Appeler la fonction save_faiss_index
+    faiss_service.save_faiss_index(index, mapping, str(tmp_path))
+
+    # Vérifier que les mocks ont été appelés correctement
+    mock_write_index.assert_called_once()
+    mock_open.assert_called_once_with(
+        os.path.join(str(tmp_path), settings.FAISS_METADATA_FILE), "w", encoding="utf-8"
+    )
+
+def test_save_faiss_index_file_permissions(tmp_path):
+    """
+    Teste la gestion des erreurs de permissions lors de la sauvegarde.
+    """
+    # Créer un index de test
+    dimension = 128
+    index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
+    mapping = {"1": {"source": "test.md", "segment": 0}}
+
+    with patch("builtins.open", side_effect=PermissionError), pytest.raises(PermissionError):
+        faiss_service.save_faiss_index(index, mapping, str(tmp_path))

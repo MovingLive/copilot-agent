@@ -13,7 +13,6 @@ Dépendances :
     - poetry add sentence-transformers faiss-cpu boto3
 """
 
-import json
 import logging
 import os
 import sys
@@ -29,6 +28,7 @@ sys.path.append(
 )
 from app.core.config import settings
 from app.services.embedding_service import EXPECTED_DIMENSION
+from app.services.faiss_service import save_faiss_index
 from app.utils import (
     clone_or_update_repo,
     export_data,
@@ -120,39 +120,6 @@ def create_faiss_index(
     logging.info("Index FAISS créé et rempli.")
 
     return index_id_map, metadata_mapping
-
-
-def save_faiss_index(
-    index: faiss.IndexIDMap, metadata_mapping: dict, directory: str
-) -> None:
-    """Sauvegarde l'index FAISS et le mapping des IDs dans le répertoire spécifié.
-
-    Args:
-        index: Index FAISS à sauvegarder
-        metadata_mapping: Mapping des IDs vers les métadonnées
-        directory: Répertoire de destination
-
-    Raises:
-        PermissionError: Si les permissions sont insuffisantes pour créer/écrire les fichiers
-        OSError: Pour les autres erreurs d'E/S
-    """
-    try:
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-
-        # Convertir les clés en str pour la sérialisation JSON
-        str_mapping = {str(k): v for k, v in metadata_mapping.items()}
-
-        index_file_path = os.path.join(directory, settings.FAISS_INDEX_FILE)
-        mapping_file_path = os.path.join(directory, settings.FAISS_METADATA_FILE)
-
-        faiss.write_index(index, index_file_path)
-        with open(mapping_file_path, "w", encoding="utf-8") as f:
-            json.dump(str_mapping, f, ensure_ascii=False, indent=2)
-        logging.info("Index FAISS et mapping sauvegardés localement.")
-    except (PermissionError, OSError) as e:
-        logging.error("Erreur lors de la sauvegarde de l'index : %s", e)
-        raise
 
 
 def main() -> None:

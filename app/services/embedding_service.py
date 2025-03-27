@@ -11,6 +11,8 @@ import torch
 from fastapi import HTTPException
 from sentence_transformers import SentenceTransformer
 
+from app.services.vector_cache import get_cache_instance
+
 logger = logging.getLogger(__name__)
 
 # Constantes
@@ -123,13 +125,21 @@ def embed_text(text: str) -> list[float]:
     """
     try:
         validate_input(text)
-        model = EmbeddingService.get_instance().model
 
+        # Vérifier si l'embedding est déjà dans le cache
+        cache = get_cache_instance()
+        cached_embedding = cache.get_embedding(text)
+
+        if cached_embedding is not None:
+            logger.debug("Embedding trouvé dans le cache")
+            return cached_embedding.tolist()
+
+        # Si non trouvé en cache, calculer l'embedding
+        model = EmbeddingService.get_instance().model
         with torch.no_grad():
             embedding = model.encode(
                 text, convert_to_tensor=True, normalize_embeddings=True
             )
-
         embedding = embedding.cpu().numpy()
         embedding = normalize_vector(embedding)
 
@@ -146,14 +156,17 @@ def embed_text(text: str) -> list[float]:
                 f"attendu: {EXPECTED_DIMENSION}"
             )
 
+        # Stocker l'embedding dans le cache
+        cache.store_embedding(text, embedding)
+
         logger.info(
             "Embedding généré avec succès: min=%f, max=%f, norme=%f",
             np.min(embedding),
             np.max(embedding),
             np.linalg.norm(embedding),
         )
-        return embedding.tolist()
 
+        return embedding.tolist()
     except ValueError as ve:
         logger.error("Erreur de validation: %s", ve)
         raise HTTPException(status_code=400, detail=str(ve)) from ve
@@ -179,8 +192,22 @@ def generate_query_vector(query: str) -> np.ndarray:
     """
     try:
         validate_input(query)
-        model = EmbeddingService.get_instance().model
 
+        # Vérifier si le vecteur est déjà dans le cache
+        cache = get_cache_instance()
+        cached_vector = cache.get_embedding(query)
+
+        if cached_vector is not None:
+            logger.debug("Vecteur de requête trouvé dans le cache")
+
+            # S'assurer que le format est correct (2D)
+            if cached_vector.ndim == 1:
+                cached_vector = cached_vector.reshape(1, -1)
+
+            return cached_vector
+
+        # Si non trouvé en cache, calculer le vecteur
+        model = EmbeddingService.get_instance().model
         with torch.no_grad():
             # Force la génération d'embeddings en mode batch (1 élément) pour assurer un tenseur 2D
             vector = (
@@ -197,13 +224,17 @@ def generate_query_vector(query: str) -> np.ndarray:
             )
 
         vector = normalize_vector(vector)
+
+        # Stocker le vecteur dans le cache
+        cache.store_embedding(query, vector)
+
         logger.debug(
             "Vecteur de requête généré: dimension=%s, norme=%f",
             vector.shape,
             np.linalg.norm(vector),
         )
-        return vector
 
+        return vector
     except ValueError as ve:
         logger.error("Erreur de validation: %s", ve)
         raise
