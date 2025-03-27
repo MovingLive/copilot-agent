@@ -93,15 +93,24 @@ def test_save_faiss_index(tmp_path):
         "2": {"source": "docs/test2.md", "segment": 0}
     }
 
+    # Forcer un répertoire fixe pour déboguer dans GitHub Actions
+    debug_dir = os.getenv("TEMP_FAISS_DIR", str(tmp_path))
+    if not os.path.exists(debug_dir):
+        os.makedirs(debug_dir)
+
     # Sauvegarder l'index
-    faiss_service.save_faiss_index(index, mapping, str(tmp_path))
+    faiss_service.save_faiss_index(index, mapping, debug_dir)
+
+    # Ajouter des logs pour vérifier les chemins
+    print(f"Chemin de l'index FAISS: {os.path.join(debug_dir, settings.FAISS_INDEX_FILE)}")
+    print(f"Chemin du fichier de mapping: {os.path.join(debug_dir, settings.FAISS_METADATA_FILE)}")
 
     # Vérifier que les fichiers ont été créés
-    assert os.path.exists(os.path.join(tmp_path, settings.FAISS_INDEX_FILE))
-    assert os.path.exists(os.path.join(tmp_path, settings.FAISS_METADATA_FILE))
+    assert os.path.exists(os.path.join(debug_dir, settings.FAISS_INDEX_FILE))
+    assert os.path.exists(os.path.join(debug_dir, settings.FAISS_METADATA_FILE))
 
     # Vérifier le contenu du mapping
-    with open(os.path.join(tmp_path, settings.FAISS_METADATA_FILE), "r", encoding="utf-8") as f:
+    with open(os.path.join(debug_dir, settings.FAISS_METADATA_FILE), "r", encoding="utf-8") as f:
         saved_mapping = json.load(f)
     assert saved_mapping == mapping
 
