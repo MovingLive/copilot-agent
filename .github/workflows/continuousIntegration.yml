@@ -24,7 +24,7 @@ jobs:
       COPILOT_API_URL: https://api.githubcopilot.com/chat/completions
       ENV: test
       FAISS_INDEX_FILE: index.faiss
-      FAISS_METADATA_FILE: id_mapping.json
+      FAISS_METADATA_FILE: metadata.json
       REPO_DIR: test_repo
       REPO_URL: https://github.com/test/repo.git
       S3_BUCKET_NAME: test-bucket
