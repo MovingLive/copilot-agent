@@ -1,8 +1,11 @@
 import numpy as np
 import pytest
+from unittest.mock import patch
 from app.services import faiss_service
-
-# ...existing code...
+from app.core.config import settings
+import os
+import json
+import faiss
 
 class FakeFaissIndex:
     def __init__(self, d):
@@ -15,6 +18,8 @@ class FakeFaissIndex:
 
 class FakeSettings:
     MIN_SEGMENT_LENGTH = 0  # pour ne pas filtrer les documents
+    FAISS_INDEX_FILE = "index.faiss"
+    FAISS_METADATA_FILE = "metadata.json"
 
 @pytest.fixture(autouse=True)
 def fake_settings(monkeypatch):
@@ -69,3 +74,45 @@ def test_retrieve_similar_documents_load_index(monkeypatch):
     results = faiss_service.retrieve_similar_documents("Load index", k=3)
     assert len(results) == 1
     assert "Document from load_index" in results[0]["content"]
+
+def test_save_faiss_index(tmp_path):
+    """
+    Teste la sauvegarde de l'index FAISS et du mapping.
+    """
+    # Créer un index de test
+    dimension = 128
+    index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
+    # pylint: disable=E1120
+    index.add_with_ids(
+        np.random.rand(2, dimension).astype("float32"), np.array([1, 2], dtype=np.int64)
+    )
+
+    # Créer un mapping de test
+    mapping = {
+        "1": {"source": "docs/test1.md", "segment": 0},
+        "2": {"source": "docs/test2.md", "segment": 0}
+    }
+
+    # Sauvegarder l'index
+    faiss_service.save_faiss_index(index, mapping, str(tmp_path))
+
+    # Vérifier que les fichiers ont été créés
+    assert os.path.exists(os.path.join(tmp_path, settings.FAISS_INDEX_FILE))
+    assert os.path.exists(os.path.join(tmp_path, settings.FAISS_METADATA_FILE))
+
+    # Vérifier le contenu du mapping
+    with open(os.path.join(tmp_path, settings.FAISS_METADATA_FILE), "r", encoding="utf-8") as f:
+        saved_mapping = json.load(f)
+    assert saved_mapping == mapping
+
+def test_save_faiss_index_file_permissions(tmp_path):
+    """
+    Teste la gestion des erreurs de permissions lors de la sauvegarde.
+    """
+    # Créer un index de test
+    dimension = 128
+    index = faiss.IndexIDMap(faiss.IndexFlatL2(dimension))
+    mapping = {"1": {"source": "test.md", "segment": 0}}
+
+    with patch("builtins.open", side_effect=PermissionError), pytest.raises(PermissionError):
+        faiss_service.save_faiss_index(index, mapping, str(tmp_path))
