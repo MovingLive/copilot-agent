@@ -54,6 +54,9 @@ class Settings(BaseModel):
         "REPO_URL", "https://github.com/votre_utilisateur/votre_repo.git"
     )
     REPO_DIR: str = os.getenv("REPO_DIR", "documentation_repo")
+    GITHUB_PAT: str = os.getenv("GITHUB_PAT", "")
+    GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
+    GITHUB_APP_PRIVATE_KEY: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
 
     # Configuration AWS
     S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")

@@ -241,7 +241,7 @@ def test_load_embedding_model_mock():
     # On s'attend à ce que cette fonction ne lève pas d'exception car elle est patchée
     # par la fixture block_huggingface_requests qui est autouse=True
     model = load_embedding_model()
-    
+
     # Au lieu de vérifier le type exact, on vérifie que c'est bien un objet mock
     # qui possède les méthodes attendues
     assert hasattr(model, 'encode')
