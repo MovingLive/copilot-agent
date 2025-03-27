@@ -111,9 +111,26 @@ async def test_get_github_user_failure(monkeypatch):
 
 # Test pour format_copilot_messages
 def test_format_copilot_messages():
-    messages = copilot_service.format_copilot_messages("Hello", "Context info", "user123")
-    assert any("Hello" in m.get("content", "") for m in messages)
-    assert any("user123" in m.get("content", "") for m in messages)
+    """Test du formatage des messages pour l'API Copilot."""
+    test_docs = [
+        {
+            "content": "Test content 1",
+            "distance": 0.1,
+            "metadata": {"source": "doc1.md", "title": "Test 1"}
+        },
+        {
+            "content": "Test content 2",
+            "distance": 0.2,
+            "metadata": {"source": "doc2.md", "title": "Test 2"}
+        }
+    ]
+    messages = copilot_service.format_copilot_messages("Hello", test_docs, "user123")
+    
+    assert isinstance(messages, list)
+    assert len(messages) == 5  # 4 system messages + 1 user message
+    assert messages[-1] == {"role": "user", "content": "Hello"}
+    assert any("user123" in msg["content"] for msg in messages)
+    assert any("Test content" in msg["content"] for msg in messages)
 
 # Tests pour call_copilot_api
 @pytest.mark.asyncio

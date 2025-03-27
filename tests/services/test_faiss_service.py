@@ -38,7 +38,7 @@ def fake_index_and_store():
 def fake_generate_query_vector(query: str):
     return np.ones((1, 384), dtype="float32")
 
-def fake_search_error(query_vector, k):
+def fake_search_error(query_vector, k, precision_priority=False):
     raise RuntimeError("Search error simulation")
 
 def fake_load_index():

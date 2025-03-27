@@ -5,7 +5,6 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.core.config import settings
 from app.services.copilot_service import (
     format_copilot_messages,
     generate_streaming_response,
@@ -44,29 +43,15 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
     search_query = query + " " + additional_context if additional_context else query
     docs = retrieve_similar_documents(search_query, k=5)
 
-    # Traitement des résultats
-    context_sections = []
-    for doc in docs:
-        if doc.get("content") and len(doc["content"]) > settings.MIN_SEGMENT_LENGTH:
-            context_sections.append(doc["content"])
-
-    # Formatage du contexte pour le LLM
-    formatted_context = "\n\n".join(
-        [
-            "CONTEXTE PERTINENT:",
-            *context_sections,
-            "\nINSTRUCTIONS:",
-            "- Utilise le contexte ci-dessus pour répondre à la question.",
-            "- Si le contexte contient une réponse directe, base ta réponse dessus.",
-            "- Structure ta réponse de façon claire et précise.",
-        ]
-    )
+    # Vérification que nous avons des documents valides
+    if not docs:
+        logger.warning("Aucun document similaire trouvé pour la requête")
 
     # Récupération des informations de l'utilisateur
     user_login = await get_github_user(auth_token)
 
     # Préparation des messages pour Copilot
-    formatted_messages = format_copilot_messages(query, formatted_context, user_login)
+    formatted_messages = format_copilot_messages(query, docs, user_login)
     data["messages"] = formatted_messages
 
     # Génération de la réponse en streaming

@@ -6,13 +6,21 @@
 
 API RESTful avec FastAPI pour un assistant GitHub Copilot. Elle récupère des embeddings issus de fichiers Markdown via FAISS et Chroma DB, enrichit les requêtes utilisateurs avec des données contextuelles, et utilise un LLM pour générer des réponses. Un script automatisé met à jour quotidiennement l'index et synchronise les données vers AWS S3.
 
-### Architecture de l'API
+### Architecture optimisée du système RAG
 
-L’API REST demandée suit un pipeline RAG (Retrieval-Augmented Generation). Lorsqu’elle reçoit une requête JSON contenant une question de l’utilisateur (ainsi qu’un contexte optionnel provenant de GitHub Copilot Chat), elle procède en deux étapes :
+L'API REST suit un pipeline RAG (Retrieval-Augmented Generation) hautement optimisé, avec les caractéristiques suivantes :
 
-1. **Récupération de données pertinentes liées à la question à l’aide d’une base de vecteurs (FAISS) contenant des embeddings.**
+1. **Segmentation intelligente des documents Markdown** : Analyse de structure avec chevauchement intelligent (50 caractères) et déduplication des segments trop similaires (seuil 0.85).
 
-2. **Génération de la réponse** en interrogeant le Large Language Model (LLM) de GitHub Copilot en lui fournissant la question enrichie du contexte récupéré. Enfin, la réponse du LLM est renvoyée au client via l’API FastAPI.
+2. **Indexation vectorielle performante** : Sélection automatique du type d'index FAISS optimal selon la taille des données (FlatL2, IVF ou HNSW), avec paramètres de recherche configurables.
+
+3. **Cache vectoriel multi-niveau** : Mécanisme LRU (Least Recently Used) pour les embeddings et les résultats de recherche, avec TTL (Time-To-Live) de 2 heures.
+
+4. **Prompts structurés pour le LLM** : Extraction et priorisation automatique des faits clés, formatage contexte en sections pertinentes pour des réponses mieux structurées.
+
+5. **Récupération de données pertinentes** : Recherche de documents similaires via FAISS avec paramètres optimisés, permettant d'équilibrer précision et performance.
+
+6. **Génération de réponses enrichies** : Interrogation du LLM de GitHub Copilot avec contexte enrichi et formaté intelligemment.
 
 ### Toolstrack
 
@@ -24,7 +32,7 @@ L’API REST demandée suit un pipeline RAG (Retrieval-Augmented Generation). Lo
 - **uvicorn**: Serveur ASGI pour exécuter l'application FastAPI.
 - **SentenceTransformers**: Utilisé pour générer des embeddings vectoriels à partir de texte.
 - **Chroma DB**: Base de données vectorielle pour le stockage et la recherche d'embeddings.
-- **FAISS**: Base de données vectorielle pour le stockage et la recherche d'embeddings.
+- **FAISS**: Base de données vectorielle optimisée avec paramètres dynamiques (nprobe, efSearch).
 - **Boto3**: Utilisé pour interagir avec AWS S3, bien que cela ne soit pas directement visible dans cet endpoint, mais dans les fonctions auxiliaires.
 - **StreamingResponse**: Utilisé pour envoyer des réponses de streaming à l'utilisateur.
 - **GitHub API**: Utilisée pour authentifier l'utilisateur via le token GitHub (x-github-token) et récupérer des informations sur l'utilisateur.
@@ -40,14 +48,19 @@ sequenceDiagram
     participant Lifespan
     participant EmbeddingService
     participant FAISSService
+    participant VectorCache
     participant UpdateThread
     participant CORSMiddleware
     participant Routers
 
     FastAPI->>Lifespan: Démarre le gestionnaire de cycle de vie
 
+    Lifespan->>VectorCache: Initialise le cache vectoriel
+    VectorCache->>VectorCache: Établit le cache LRU (2000 entrées, TTL=7200s)
+
     Lifespan->>EmbeddingService: Initialise le singleton
     EmbeddingService->>EmbeddingService: Charge le modèle SentenceTransformer
+    EmbeddingService->>VectorCache: Configure lien vers le cache
     alt Erreur de chargement du modèle
         EmbeddingService-->>Lifespan: Erreur d'initialisation
         Lifespan-->>FastAPI: Propage l'erreur
@@ -55,6 +68,7 @@ sequenceDiagram
 
     Lifespan->>FAISSService: load_index()
     FAISSService->>FAISSService: Charge index.faiss et metadata.json
+    FAISSService->>FAISSService: Configure paramètres optimaux (nprobe/efSearch)
     alt Erreur de chargement FAISS
         FAISSService-->>Lifespan: Erreur d'initialisation
         Lifespan-->>FastAPI: Propage l'erreur
@@ -73,13 +87,12 @@ Explications :
 
 - **FastAPI**: Démarre l'application et gère le cycle de vie.
 - **Lifespan**: Gestionnaire de cycle de vie qui initialise les services essentiels.
-- **EmbeddingService**: Service singleton qui charge le modèle SentenceTransformer.
-- **FAISSService**: Charge l'index vectoriel et les métadonnées associées.
+- **VectorCache**: Service singleton qui gère le cache d'embeddings et de résultats.
+- **EmbeddingService**: Service singleton qui charge le modèle SentenceTransformer et utilise le cache.
+- **FAISSService**: Charge l'index vectoriel optimisé et les métadonnées associées.
 - **UpdateThread**: Thread daemon qui met à jour périodiquement l'index FAISS.
 - **CORSMiddleware**: Configure les politiques CORS.
 - **Routers**: Monte les routeurs pour les endpoints health et copilot.
-
-Les erreurs critiques lors de l'initialisation empêchent le démarrage du serveur.
 
 ### Diagrame de séquence sur appel de l'API
 

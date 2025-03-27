@@ -18,6 +18,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import settings
 from app.services.embedding_service import generate_query_vector
+from app.services.vector_cache import get_cache_instance
 from app.utils.export_utils import is_local_environment
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,42 @@ def _download_from_s3(faiss_path: str, metadata_path: str) -> None:
             s3_client.download_file(settings.S3_BUCKET_NAME, file_info[0], file_info[1])
     except (BotoCoreError, ClientError) as e:
         raise FAISSSyncError(f"Erreur S3: {str(e)}") from e
+
+
+def create_optimized_index(dimension: int, vector_count: int) -> faiss.Index:
+    """Crée un index FAISS optimisé basé sur la taille des données.
+
+    Args:
+        dimension: Dimension des vecteurs
+        vector_count: Nombre approximatif de vecteurs attendus
+
+    Returns:
+        faiss.Index: Index FAISS optimisé
+    """
+    # Déterminer le meilleur type d'index en fonction de la taille des données
+    if vector_count < 10000:
+        # Pour petits ensembles: recherche exacte
+        logger.info(
+            f"Création d'un index exact (IndexFlatL2) pour {vector_count} vecteurs"
+        )
+        return faiss.IndexFlatL2(dimension)
+    elif vector_count < 100000:
+        # Pour ensembles moyens: IVF avec clusters
+        logger.info(f"Création d'un index IVF pour {vector_count} vecteurs")
+        n_clusters = min(int(4 * np.sqrt(vector_count)), 8192)  # Règle empirique
+        quantizer = faiss.IndexFlatL2(dimension)
+        index = faiss.IndexIVFFlat(quantizer, dimension, n_clusters)
+        index.nprobe = 8  # Valeur par défaut, peut être ajustée lors de la recherche
+        return index
+    else:
+        # Pour grands ensembles: HNSW pour rapidité et précision
+        logger.info(f"Création d'un index HNSW pour {vector_count} vecteurs")
+        index = faiss.IndexHNSWFlat(dimension, 32)  # 32 voisins par nœud
+        index.hnsw.efConstruction = (
+            40  # Plus élevé = plus précis mais plus lent à construire
+        )
+        index.hnsw.efSearch = 16  # Plus élevé = plus précis mais plus lent à rechercher
+        return index
 
 
 def _load_faiss_index(path: str) -> faiss.Index:
@@ -186,10 +223,58 @@ def _prepare_query_vector(query_vector: np.ndarray) -> np.ndarray:
     return query_vector
 
 
-def _search_in_index(query_vector: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
-    """Effectue la recherche dans l'index FAISS."""
+def configure_search_parameters(
+    k: int, precision_priority: bool = False
+) -> dict[str, Any]:
+    """Configure les paramètres de recherche FAISS optimaux.
+
+    Args:
+        k: Nombre de résultats à retourner
+        precision_priority: Si vrai, privilégie la précision à la vitesse
+
+    Returns:
+        Dict[str, Any]: Paramètres optimisés pour la recherche
+    """
+    params = {"k": k}
+
+    # Adaptation des paramètres selon le type d'index
+    if _state.index is None:
+        return params
+
+    # Pour les index IVF, configure nprobe (nombre de cellules à explorer)
+    if isinstance(_state.index, faiss.IndexIVFFlat):
+        # Augmente nprobe pour améliorer le rappel, au détriment de la vitesse
+        nprobe = 8  # Valeur par défaut
+        if precision_priority:
+            # Si on veut plus de précision, on augmente nprobe
+            nprobe = min(32, max(16, k * 2))  # Au moins 16, au plus 32
+
+        _state.index.nprobe = nprobe
+        params["nprobe"] = nprobe
+
+    # Pour HNSW, configure efSearch
+    elif hasattr(_state.index, "hnsw"):
+        ef_search = 16  # Valeur par défaut
+        if precision_priority:
+            ef_search = min(80, max(40, k * 4))  # Au moins 40, au plus 80
+
+        _state.index.hnsw.efSearch = ef_search
+        params["ef_search"] = ef_search
+
+    logger.debug("Paramètres de recherche configurés: %s", params)
+    return params
+
+
+def _search_in_index(
+    query_vector: np.ndarray, k: int, precision_priority: bool = False
+) -> tuple[np.ndarray, np.ndarray]:
+    """Effectue la recherche dans l'index FAISS avec paramètres optimisés."""
     if _state.index is None:
         raise FAISSLoadError("Index FAISS non disponible")
+
+    # Configure les paramètres de recherche optimaux
+    search_params = configure_search_parameters(k, precision_priority)
+
     try:
         return _state.index.search(query_vector, k)
     except RuntimeError as e:
@@ -223,16 +308,30 @@ def _process_search_results(
     return results
 
 
-def retrieve_similar_documents(query: str, k: int = 5) -> list[dict[str, Any]]:
+def retrieve_similar_documents(
+    query: str, k: int = 5, precision_priority: bool = False, use_cache: bool = True
+) -> list[dict[str, Any]]:
     """Recherche les documents les plus similaires à la requête.
 
     Args:
         query: La requête texte
         k: Nombre de résultats à retourner
+        precision_priority: Si True, privilégie la précision à la vitesse
+        use_cache: Si True, utilise le cache pour les résultats de recherche
 
     Returns:
         list[dict[str, Any]]: Liste des documents similaires avec leurs métadonnées
     """
+    # Vérifier d'abord dans le cache si cette requête a déjà été traitée
+    if use_cache:
+        cache = get_cache_instance()
+        cached_results = cache.get_search_results(query)
+        if cached_results is not None:
+            logger.info(
+                "Résultats trouvés dans le cache pour la requête: %s", query[:30]
+            )
+            return cached_results
+
     if _state.index is None:
         try:
             index, doc_store = load_index()
@@ -245,11 +344,19 @@ def retrieve_similar_documents(query: str, k: int = 5) -> list[dict[str, Any]]:
             # En environnement de test, on peut avoir des erreurs si le fichier n'existe pas
             logger.warning("Erreur lors du chargement de l'index FAISS: %s", e)
             return []
+
     try:
         query_vector = generate_query_vector(query)
         prepared_vector = _prepare_query_vector(query_vector)
-        distances, indices = _search_in_index(prepared_vector, k)
-        return _process_search_results(distances, indices)
+        distances, indices = _search_in_index(prepared_vector, k, precision_priority)
+        results = _process_search_results(distances, indices)
+
+        # Stockage des résultats dans le cache pour les requêtes futures
+        if use_cache and results:
+            cache = get_cache_instance()
+            cache.store_search_results(query, results)
+
+        return results
     except (ValueError, FAISSServiceError, RuntimeError) as e:
         logger.warning("Erreur lors de la recherche: %s", e)
         return []
