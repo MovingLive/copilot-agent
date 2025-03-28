@@ -87,7 +87,7 @@ class Settings(BaseModel):
 
     # Configuration de logging
     LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(message)s"
-
+    FAISS_LANG: str = os.getenv("FAISS_LANG", "en")
 
 # Instance singleton des configurations
 settings = Settings()
