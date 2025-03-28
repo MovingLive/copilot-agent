@@ -4,7 +4,7 @@
 
 ### Objectif principal de l'API
 
-API RESTful avec FastAPI pour un assistant GitHub Copilot. Elle récupère des embeddings issus de fichiers Markdown via FAISS et Chroma DB, enrichit les requêtes utilisateurs avec des données contextuelles, et utilise un LLM pour générer des réponses. Un script automatisé met à jour quotidiennement l'index et synchronise les données vers AWS S3.
+API RESTful avec FastAPI pour un assistant GitHub Copilot. Elle récupère des embeddings issus de fichiers Markdown via FAISS et Chroma DB, enrichit les requêtes utilisateurs avec des données contextuelles, et utilise un LLM pour générer des réponses. Un script automatisé met à jour quotidiennement l'index et synchronise les données vers AWS S3. L'API gère automatiquement la traduction entre le français et l'anglais pour assurer une meilleure correspondance entre les questions et la documentation.
 
 ### Architecture optimisée du système RAG
 
@@ -12,33 +12,53 @@ L'API REST suit un pipeline RAG (Retrieval-Augmented Generation) hautement optim
 
 1. **Segmentation intelligente des documents Markdown** : Analyse de structure avec chevauchement intelligent (50 caractères) et déduplication des segments trop similaires (seuil 0.85).
 
-2. **Indexation vectorielle performante** : Sélection automatique du type d'index FAISS optimal selon la taille des données (FlatL2, IVF ou HNSW), avec paramètres de recherche configurables.
+2. **Détection et traduction automatique** :
+   - Détection automatique de la langue des questions entrantes
+   - Traduction bidirectionnelle français-anglais avec M2M100 (version optimisée 418M)
+   - Cache LRU pour les modèles de traduction et les résultats fréquents
+   - Gestion robuste des erreurs pour assurer la continuité du service
 
-3. **Cache vectoriel multi-niveau** : Mécanisme LRU (Least Recently Used) pour les embeddings et les résultats de recherche, avec TTL (Time-To-Live) de 2 heures.
+3. **Indexation vectorielle performante** :
+   - Sélection automatique du type d'index FAISS optimal selon la taille des données (FlatL2, IVF ou HNSW)
+   - Paramètres de recherche configurables via FAISS_LANG et autres variables d'environnement
+   - Optimisation des requêtes par langue pour une meilleure pertinence
 
-4. **Prompts structurés pour le LLM** : Extraction et priorisation automatique des faits clés, formatage contexte en sections pertinentes pour des réponses mieux structurées.
+4. **Cache vectoriel multi-niveau** : Mécanisme LRU (Least Recently Used) pour les embeddings et les résultats de recherche, avec TTL (Time-To-Live) de 2 heures.
 
-5. **Récupération de données pertinentes** : Recherche de documents similaires via FAISS avec paramètres optimisés, permettant d'équilibrer précision et performance.
+5. **Prompts structurés pour le LLM** :
+   - Extraction et priorisation automatique des faits clés
+   - Formatage contexte en sections pertinentes
+   - Conservation de la langue originale de l'utilisateur dans les réponses
 
-6. **Génération de réponses enrichies** : Interrogation du LLM de GitHub Copilot avec contexte enrichi et formaté intelligemment.
+6. **Récupération de données pertinentes** :
+   - Recherche de documents similaires via FAISS avec paramètres optimisés
+   - Traduction automatique du contexte si nécessaire
+   - Équilibrage entre précision et performance
 
-### Toolstrack
+7. **Génération de réponses enrichies** :
+   - Interrogation du LLM de GitHub Copilot avec contexte enrichi
+   - Gestion intelligente des langues source et cible
+   - Support multilingue transparent pour l'utilisateur
 
-- **FastAPI**: Utilisé pour créer l'API RESTful.
-- **Python**: Langage de programmation utilisé pour le développement de l'API.
-- **Poetry**: Outil de gestion des dépendances et de packaging pour Python.
-- **pytest**: Utilisé pour les tests unitaires et d'intégration.
-- **Pydantic**: Utilisé pour la validation des données et la sérialisation.
-- **uvicorn**: Serveur ASGI pour exécuter l'application FastAPI.
-- **SentenceTransformers**: Utilisé pour générer des embeddings vectoriels à partir de texte.
-- **Chroma DB**: Base de données vectorielle pour le stockage et la recherche d'embeddings.
-- **FAISS**: Base de données vectorielle optimisée avec paramètres dynamiques (nprobe, efSearch).
-- **Boto3**: Utilisé pour interagir avec AWS S3, bien que cela ne soit pas directement visible dans cet endpoint, mais dans les fonctions auxiliaires.
-- **StreamingResponse**: Utilisé pour envoyer des réponses de streaming à l'utilisateur.
-- **GitHub API**: Utilisée pour authentifier l'utilisateur via le token GitHub (x-github-token) et récupérer des informations sur l'utilisateur.
-- **Copilot LLM API**: API appelée pour générer une réponse basée sur la question et le contexte fourni.
-- **Logging**: Utilisé pour enregistrer des informations sur le traitement des requêtes et le débogage.
-- **GitHub Actions**: Utilisé pour l'intégration continue et le déploiement continu (CI/CD).
+### Toolstack
+
+- **FastAPI**: Framework API RESTful
+- **Python**: Langage de programmation principal
+- **Poetry**: Gestion des dépendances et packaging
+- **pytest**: Tests unitaires et d'intégration
+- **Pydantic V2**: Validation des données et sérialisation
+- **uvicorn**: Serveur ASGI
+- **SentenceTransformers**: Génération d'embeddings vectoriels
+- **M2M100**: Traduction multilingue (facebook/m2m100_418M)
+- **langdetect**: Détection de langue avec stabilisation
+- **Chroma DB**: Base de données vectorielle
+- **FAISS**: Base de données vectorielle optimisée
+- **Boto3**: Interaction avec AWS S3
+- **StreamingResponse**: Réponses en streaming
+- **GitHub API**: Authentification et informations utilisateur
+- **Copilot LLM API**: Génération de réponses contextuelles
+- **Logging**: Journalisation et débogage
+- **GitHub Actions**: CI/CD
 
 ### Diagrame de séquence sur demarrage du serveur
 
@@ -230,3 +250,44 @@ Ce fichier contient les métadonnées associées aux vecteurs. Typiquement :
 - Toute autre information utile à restituer quand tu fais une recherche
 
 Quand tu fais une requête dans ton moteur de recherche vectoriel, tu obtiens un ou plusieurs vecteurs similaires depuis FAISS (grâce au .faiss), mais pour afficher les résultats à l’utilisateur, tu as besoin de retrouver ce que représentait chaque vecteur → c’est là que le .json est utile.
+
+### Configuration du système
+
+Le système peut être configuré via des variables d'environnement :
+
+- **FAISS_LANG**: Langue principale de la documentation (default: "en")
+- **LOG_LEVEL**: Niveau de journalisation (default: "INFO")
+- **CORS_ORIGINS**: Origines autorisées pour CORS
+- **ENV**: Environnement d'exécution (local/production)
+
+Exemple de configuration dans `.env` :
+
+```bash
+FAISS_LANG=en
+LOG_LEVEL=INFO
+ENV=local
+```
+
+### Pipeline de traduction
+
+Le système intègre un pipeline de traduction robuste :
+
+1. **Détection de langue** :
+   - Utilisation de langdetect avec seed fixe pour la stabilité
+   - Validation supplémentaire avec dictionnaire de mots courants
+   - Gestion des cas particuliers et des erreurs
+
+2. **Traduction** :
+   - Modèle M2M100 optimisé (418M paramètres)
+   - Mise en cache du modèle avec @lru_cache
+   - Traitement asynchrone pour les performances
+
+3. **Optimisation** :
+   - Cache LRU pour les résultats de traduction
+   - Vérification de nécessité de traduction
+   - Conservation du texte original en cas d'erreur
+
+4. **Validation** :
+   - Tests unitaires complets
+   - Gestion des cas limites
+   - Monitoring des performances

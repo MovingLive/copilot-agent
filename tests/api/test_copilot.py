@@ -14,7 +14,8 @@ client = TestClient(app)
 # Données de test
 TEST_TOKEN = "fake_github_token"
 TEST_USER = "testuser"
-TEST_QUERY = "Comment utiliser FastAPI?"
+TEST_QUERY_FR = "Comment utiliser FastAPI?"  # Question en français
+TEST_QUERY_EN = "How to use FastAPI?"  # Question en anglais
 TEST_CONTEXT = "Documentation FastAPI"
 
 @pytest.mark.asyncio
@@ -22,7 +23,7 @@ async def test_handle_copilot_query_success(mock_sentence_transformer):
     """Test du succès de la requête Copilot."""
     headers = {"x-github-token": TEST_TOKEN}
     data = {
-        "messages": [{"role": "user", "content": TEST_QUERY}],
+        "messages": [{"role": "user", "content": TEST_QUERY_EN}],
         "copilot_references": TEST_CONTEXT,
     }
 
@@ -50,7 +51,7 @@ async def test_handle_copilot_query_with_context(mock_sentence_transformer):
     """Test de la requête avec contexte additionnel."""
     headers = {"x-github-token": TEST_TOKEN}
     data = {
-        "messages": [{"role": "user", "content": TEST_QUERY}],
+        "messages": [{"role": "user", "content": TEST_QUERY_EN}],
         "copilot_references": TEST_CONTEXT,
     }
 
@@ -78,7 +79,7 @@ async def test_handle_copilot_query_with_context(mock_sentence_transformer):
 async def test_handle_copilot_query_service_error():
     """Test de la gestion des erreurs de service."""
     headers = {"x-github-token": TEST_TOKEN}
-    data = {"messages": [{"role": "user", "content": TEST_QUERY}]}
+    data = {"messages": [{"role": "user", "content": TEST_QUERY_EN}]}
 
     async def mock_get_github_user(token):
         raise HTTPException(status_code=401, detail="Token GitHub invalide")
@@ -91,7 +92,7 @@ async def test_handle_copilot_query_service_error():
 
 def test_handle_copilot_query_missing_token():
     """Test de l'erreur lors d'un token manquant."""
-    response = client.post("/", json={"messages": [{"content": TEST_QUERY}]})
+    response = client.post("/", json={"messages": [{"content": TEST_QUERY_EN}]})
     assert response.status_code == 401
     assert response.json()["detail"] == "Token d'authentification manquant"
 
