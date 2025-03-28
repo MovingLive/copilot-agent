@@ -105,14 +105,18 @@ def detect_language(text: str) -> str:
         words = set(word.lower() for word in text.split())
 
         # Si le texte contient plusieurs mots anglais communs, c'est probablement de l'anglais
-        if len(words.intersection(english_common_words)) >= 2:
+        english_word_count = len(words.intersection(english_common_words))
+        if english_word_count >= 2:
             return "en"
 
-        # Utilisation de langdetect comme fallback
+        # Configuration de langdetect pour plus de stabilité
+        langdetect.DetectorFactory.seed = 0
         detected = langdetect.detect(text)
 
-        # Validation supplémentaire pour l'anglais
-        if detected == "so" and any(word in english_common_words for word in words):
+        # Correction des faux positifs connus de langdetect
+        if detected in ["so", "sw"] and any(
+            word in english_common_words for word in words
+        ):
             return "en"
 
         return detected
