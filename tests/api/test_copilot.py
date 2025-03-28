@@ -1,5 +1,5 @@
 """Tests pour les endpoints Copilot."""
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch
 import numpy as np
 import pytest
 from fastapi import HTTPException
