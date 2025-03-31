@@ -78,7 +78,6 @@ class Settings(BaseModel):
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
         "output",
     )
-    CHROMA_PERSIST_DIR: str = "chroma_db"
     COLLECTION_NAME: str = "documentation"
 
     # Constantes pour la recherche de similarité

@@ -4,7 +4,7 @@
 
 ### Objectif principal de l'API
 
-API RESTful avec FastAPI pour un assistant GitHub Copilot. Elle récupère des embeddings issus de fichiers Markdown via FAISS et Chroma DB, enrichit les requêtes utilisateurs avec des données contextuelles, et utilise un LLM pour générer des réponses. Un script automatisé met à jour quotidiennement l'index et synchronise les données vers AWS S3. L'API gère automatiquement la traduction entre le français et l'anglais pour assurer une meilleure correspondance entre les questions et la documentation.
+API RESTful avec FastAPI pour un assistant GitHub Copilot. Elle récupère des embeddings issus de fichiers Markdown via FAISS, enrichit les requêtes utilisateurs avec des données contextuelles, et utilise un LLM pour générer des réponses. Un script automatisé met à jour quotidiennement l'index et synchronise les données vers AWS S3. L'API gère automatiquement la traduction entre le français et l'anglais pour assurer une meilleure correspondance entre les questions et la documentation.
 
 ### Architecture optimisée du système RAG
 
@@ -51,7 +51,6 @@ L'API REST suit un pipeline RAG (Retrieval-Augmented Generation) hautement optim
 - **SentenceTransformers**: Génération d'embeddings vectoriels
 - **M2M100**: Traduction multilingue (facebook/m2m100_418M)
 - **langdetect**: Détection de langue avec stabilisation
-- **Chroma DB**: Base de données vectorielle
 - **FAISS**: Base de données vectorielle optimisée
 - **Boto3**: Interaction avec AWS S3
 - **StreamingResponse**: Réponses en streaming
@@ -208,24 +207,20 @@ Vous pouvez vérifier si l'API fonctionne correctement en envoyant une requête 
 
 `http://localhost:8000/`
 
-## Script Update chroma
+## Script Updater FAISS
 
 ### Objectif principal du script
 
-Mettre à jour quotidiennement (toutes les 24 heures) une base de données vectorielle Chroma DB indexant la documentation (environ 150 Mo de fichiers Markdown) pour servir un agent GitHub Copilot destiné à des centaines de développeurs.
+Mettre à jour quotidiennement (toutes les 24 heures) une base de données vectorielle FAISS indexant la documentation (environ 150 Mo de fichiers Markdown) pour servir un agent GitHub Copilot destiné à des centaines de développeurs.
 
 ### Contexte du script
 
-Pour des fins de tests, 2 technologies utilisées:
-
-- **Chroma DB**: Base de données vectorielle pour le stockage et la recherche d'embeddings. `/scripts/update_chroma.py`
 - **FAISS**: Librairie de Facebook pour la recherche efficace d'embeddings. `/scripts/update_faiss.py`
 
 ### Architecture du script
 
 - **Extraction & Pré-traitement:** Un script Python qui clônera le dépôt GitHub, lira et traitera les 100 fichiers Markdown pour les diviser en segments pertinents.
 - **Génération des embeddings:** Pour chaque segment, on génère un vecteur d’embedding. Même si votre agent utilisera le LLM de Copilot pour répondre aux requêtes, il faut disposer d’un index efficace ; un modèle d’embedding léger et performant (comme « all-MiniLM-L6-v2 » par exemple) peut être utilisé pour obtenir une bonne qualité de recherche.
-- **Indexation dans Chroma DB:** Les embeddings (avec leurs métadonnées, par exemple le nom du fichier, le contexte, etc.) sont stockés dans une instance de Chroma DB.
 - **Persistance sur AWS S3:** La base vectorielle est persistée dans un dossier local, puis synchronisée vers votre bucket S3 (déjà protégé) pour un stockage centralisé et accessible depuis votre instance AWS.
 - **Automatisation via GitHub Actions:** Une action planifiée (cron) déclenche l’exécution quotidienne du script pour mettre à jour la base vectorielle.
 
