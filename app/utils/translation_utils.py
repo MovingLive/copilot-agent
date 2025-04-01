@@ -268,9 +268,6 @@ def translate_text(text: str, src_lang: str = None, tgt_lang: str = None) -> str
 
     Returns:
         str: Le texte traduit
-
-    Raises:
-        ValueError: Si la traduction échoue
     """
     if not text or not text.strip():
         return text
@@ -287,56 +284,14 @@ def translate_text(text: str, src_lang: str = None, tgt_lang: str = None) -> str
     if src_lang == "unknown" or src_lang == tgt_lang:
         return text
 
-    # Mappage des codes de langue ISO pour NLLB
-    nllb_lang_map = {
-        "en": "eng_Latn",
-        "fr": "fra_Latn",
-        "es": "spa_Latn",
-        "de": "deu_Latn",
-        "it": "ita_Latn",
-        "pt": "por_Latn",
-        "nl": "nld_Latn",
-        "ru": "rus_Cyrl",
-        "ja": "jpn_Jpan",
-        "zh": "zho_Hans",
-        "ar": "arb_Arab",
-        "ko": "kor_Hang",
-        "hi": "hin_Deva",
-    }
-
-    # Conversion des codes de langue ISO vers les codes NLLB
-    nllb_src_lang = nllb_lang_map.get(
-        src_lang, "eng_Latn"
-    )  # Défaut vers anglais si non trouvé
-    nllb_tgt_lang = nllb_lang_map.get(tgt_lang, "eng_Latn")
-
     try:
         logger.debug("Traduction de '%s' à '%s'", src_lang, tgt_lang)
 
-        # Utilisation du service de traduction préchargé au lieu de charger le modèle à la demande
+        # Utilisation du service de traduction
         translation_service = TranslationService.get_instance()
-        if not translation_service.is_loaded:
-            logger.warning("Modèle de traduction non chargé, impossible de traduire")
-            return text
-
-        tokenizer, model = translation_service.model_and_tokenizer
-
-        # Tokenization du texte avec le code de langue NLLB source
-        encoded = tokenizer(text, return_tensors="pt")
-
-        # Génération de la traduction avec le code de langue NLLB cible
-        generated_tokens = model.generate(
-            **encoded,
-            forced_bos_token_id=tokenizer.lang_code_to_id[nllb_tgt_lang],
-            max_length=1024,
+        return translation_service.translate(
+            text, source_lang=src_lang, target_lang=tgt_lang
         )
-
-        # Décodage de la traduction
-        translated_text = tokenizer.batch_decode(
-            generated_tokens, skip_special_tokens=True
-        )[0]
-
-        return translated_text
     except Exception as e:
         logger.error("Erreur lors de la traduction: %s", e)
         # En cas d'erreur, retourner le texte original
