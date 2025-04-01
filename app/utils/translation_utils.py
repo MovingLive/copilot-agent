@@ -2,16 +2,15 @@
 
 Ce module fournit des fonctions pour détecter la langue d'un texte
 et traduire du texte entre différentes langues en utilisant un modèle
-multilingue (M2M100).
+multilingue léger.
 """
 
 import logging
-from functools import lru_cache
 
 import langid
-from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
 
 from app.core.config import settings
+from app.services.translation_service import TranslationService
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -20,28 +19,6 @@ logger = logging.getLogger(__name__)
 langid.set_languages(
     ["en", "fr", "es", "de", "it", "pt", "nl", "ru", "ja", "zh", "ar", "ko", "hi"]
 )
-
-
-@lru_cache(maxsize=1)
-def _get_translation_model_and_tokenizer():
-    """Charge et met en cache le modèle de traduction M2M100 et son tokenizer.
-
-    Returns:
-        tuple: (tokenizer, model) pour M2M100
-    """
-    try:
-        # Utilisation d'une version plus légère du modèle M2M100
-        model_name = "facebook/m2m100_418M"  # Version plus légère que le modèle complet
-        logger.info("Chargement du modèle de traduction %s", model_name)
-
-        tokenizer = M2M100Tokenizer.from_pretrained(model_name)
-        model = M2M100ForConditionalGeneration.from_pretrained(model_name)
-
-        logger.info("Modèle de traduction chargé avec succès")
-        return tokenizer, model
-    except Exception as e:
-        logger.error("Erreur lors du chargement du modèle de traduction: %s", e)
-        raise
 
 
 def detect_language(text: str) -> str:
@@ -310,20 +287,47 @@ def translate_text(text: str, src_lang: str = None, tgt_lang: str = None) -> str
     if src_lang == "unknown" or src_lang == tgt_lang:
         return text
 
+    # Mappage des codes de langue ISO pour NLLB
+    nllb_lang_map = {
+        "en": "eng_Latn",
+        "fr": "fra_Latn",
+        "es": "spa_Latn",
+        "de": "deu_Latn",
+        "it": "ita_Latn",
+        "pt": "por_Latn",
+        "nl": "nld_Latn",
+        "ru": "rus_Cyrl",
+        "ja": "jpn_Jpan",
+        "zh": "zho_Hans",
+        "ar": "arb_Arab",
+        "ko": "kor_Hang",
+        "hi": "hin_Deva",
+    }
+
+    # Conversion des codes de langue ISO vers les codes NLLB
+    nllb_src_lang = nllb_lang_map.get(
+        src_lang, "eng_Latn"
+    )  # Défaut vers anglais si non trouvé
+    nllb_tgt_lang = nllb_lang_map.get(tgt_lang, "eng_Latn")
+
     try:
         logger.debug("Traduction de '%s' à '%s'", src_lang, tgt_lang)
-        tokenizer, model = _get_translation_model_and_tokenizer()
 
-        # Configuration du tokenizer pour la langue source
-        tokenizer.src_lang = src_lang
+        # Utilisation du service de traduction préchargé au lieu de charger le modèle à la demande
+        translation_service = TranslationService.get_instance()
+        if not translation_service.is_loaded:
+            logger.warning("Modèle de traduction non chargé, impossible de traduire")
+            return text
 
-        # Tokenization du texte
+        tokenizer, model = translation_service.model_and_tokenizer
+
+        # Tokenization du texte avec le code de langue NLLB source
         encoded = tokenizer(text, return_tensors="pt")
 
-        # Génération de la traduction
+        # Génération de la traduction avec le code de langue NLLB cible
         generated_tokens = model.generate(
             **encoded,
-            forced_bos_token_id=tokenizer.get_lang_id(tgt_lang),
+            forced_bos_token_id=tokenizer.lang_code_to_id[nllb_tgt_lang],
             max_length=1024,
         )
 
