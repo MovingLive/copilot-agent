@@ -1,22 +1,20 @@
-"""Service de gestion de la traduction avec chargement paresseux.
+"""Service de gestion de la traduction avec deep-translator.
 
-Ce service implémente le pattern singleton et assure
-que le modèle de traduction est chargé une seule fois.
+Ce service implémente le pattern singleton pour la gestion des traductions.
 """
 
 import logging
 
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from deep_translator import GoogleTranslator
 
 logger = logging.getLogger(__name__)
 
 
 class TranslationService:
-    """Service de gestion des modèles de traduction."""
+    """Service de gestion des traductions."""
 
     _instance = None
-    _model = None
-    _tokenizer = None
+    _translator: GoogleTranslator | None = None
 
     @classmethod
     def get_instance(cls) -> "TranslationService":
@@ -29,40 +27,61 @@ class TranslationService:
             cls._instance = cls()
         return cls._instance
 
-    def load_model(self, model_name: str = "facebook/nllb-200-distilled-600M") -> None:
-        """Charge le modèle et le tokenizer de traduction.
+    def load_model(self, source_lang: str = "auto", target_lang: str = "en") -> None:
+        """Initialise le traducteur.
 
         Args:
-            model_name: Nom du modèle à charger
+            source_lang: Langue source (défaut: auto-détection)
+            target_lang: Langue cible (défaut: anglais)
         """
         try:
-            logger.info("Chargement du modèle de traduction %s", model_name)
-            self._tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self._model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-            logger.info("Modèle de traduction chargé avec succès")
+            logger.info(
+                "Initialisation du traducteur %s -> %s", source_lang, target_lang
+            )
+            self._translator = GoogleTranslator(source=source_lang, target=target_lang)
+            logger.info("Traducteur initialisé avec succès")
         except Exception as e:
-            logger.error("Erreur lors du chargement du modèle de traduction: %s", e)
+            logger.error("Erreur lors de l'initialisation du traducteur: %s", e)
             raise
 
     @property
     def is_loaded(self) -> bool:
-        """Vérifie si le modèle est chargé.
+        """Vérifie si le traducteur est initialisé.
 
         Returns:
-            bool: True si le modèle est chargé, False sinon
+            bool: True si le traducteur est initialisé, False sinon
         """
-        return self._model is not None and self._tokenizer is not None
+        return self._translator is not None
 
-    @property
-    def model_and_tokenizer(self) -> tuple[AutoTokenizer, AutoModelForSeq2SeqLM]:
-        """Récupère le modèle et le tokenizer.
+    def translate(
+        self, text: str, source_lang: str = "auto", target_lang: str = "en"
+    ) -> str:
+        """Traduit un texte.
+
+        Args:
+            text: Texte à traduire
+            source_lang: Langue source (défaut: auto-détection)
+            target_lang: Langue cible (défaut: anglais)
 
         Returns:
-            Tuple: (tokenizer, model)
+            str: Texte traduit
 
         Raises:
-            RuntimeError: Si le modèle n'est pas chargé
+            RuntimeError: Si le traducteur n'est pas initialisé
         """
         if not self.is_loaded:
-            raise RuntimeError("Le modèle de traduction n'est pas chargé")
-        return self._tokenizer, self._model
+            self.load_model(source_lang, target_lang)
+
+        try:
+            if (
+                source_lang != self._translator.source
+                or target_lang != self._translator.target
+            ):
+                self._translator = GoogleTranslator(
+                    source=source_lang, target=target_lang
+                )
+
+            return self._translator.translate(text)
+        except Exception as e:
+            logger.error("Erreur lors de la traduction: %s", e)
+            return text
