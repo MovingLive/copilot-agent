@@ -192,18 +192,27 @@ def generate_query_vector(query: str) -> np.ndarray:
     """
     try:
         validate_input(query)
+        logger.info("Génération du vecteur de requête pour: '%s'", query[:50] + "..." if len(query) > 50 else query)
 
         # Vérifier si le vecteur est déjà dans le cache
         cache = get_cache_instance()
         cached_vector = cache.get_embedding(query)
 
         if cached_vector is not None:
-            logger.debug("Vecteur de requête trouvé dans le cache")
+            logger.info("✅ Vecteur de requête trouvé dans le cache")
 
             # S'assurer que le format est correct (2D)
             if cached_vector.ndim == 1:
                 cached_vector = cached_vector.reshape(1, -1)
 
+            # Log des statistiques du vecteur
+            norm = np.linalg.norm(cached_vector)
+            mean = np.mean(cached_vector)
+            std = np.std(cached_vector)
+            logger.info(
+                "📊 Statistiques du vecteur (cache): norme=%.4f, moyenne=%.4f, écart-type=%.4f",
+                norm, mean, std
+            )
             return cached_vector
 
         # Si non trouvé en cache, calculer le vecteur
@@ -228,18 +237,28 @@ def generate_query_vector(query: str) -> np.ndarray:
         # Stocker le vecteur dans le cache
         cache.store_embedding(query, vector)
 
-        logger.debug(
-            "Vecteur de requête généré: dimension=%s, norme=%f",
-            vector.shape,
-            np.linalg.norm(vector),
+        # Log détaillé sur le vecteur généré
+        norm = np.linalg.norm(vector)
+        mean = np.mean(vector)
+        std = np.std(vector)
+        min_val = np.min(vector)
+        max_val = np.max(vector)
+        non_zeros = np.count_nonzero(vector)
+        logger.info(
+            "📊 Statistiques du vecteur (généré): dimension=%s, norme=%.4f, moyenne=%.4f, écart-type=%.4f",
+            vector.shape, norm, mean, std
+        )
+        logger.info(
+            "📈 Détails supplémentaires: min=%.4f, max=%.4f, valeurs non-nulles=%d/%d",
+            min_val, max_val, non_zeros, vector.size
         )
 
         return vector
     except ValueError as ve:
-        logger.error("Erreur de validation: %s", ve)
+        logger.error("❌ Erreur de validation: %s", ve)
         raise
     except Exception as e:
-        logger.error("Erreur lors de la génération du vecteur: %s", e)
+        logger.error("❌ Erreur lors de la génération du vecteur: %s", e)
         raise HTTPException(
             status_code=500, detail=f"{HTTP_500_ERROR}: {str(e)}"
         ) from e
