@@ -20,6 +20,7 @@ class FakeSettings:
     MIN_SEGMENT_LENGTH = 0  # pour ne pas filtrer les documents
     FAISS_INDEX_FILE = "index.faiss"
     FAISS_METADATA_FILE = "metadata.json"
+    LOCAL_OUTPUT_DIR = "/tmp/faiss_output"  # Ajout du répertoire de sortie local
 
 @pytest.fixture(autouse=True)
 def fake_settings(monkeypatch):

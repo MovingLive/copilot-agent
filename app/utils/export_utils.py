@@ -33,6 +33,10 @@ def is_local_environment() -> bool:
     Returns:
         bool: True si l'environnement est local, False sinon
     """
+    # Si TESTING est vrai, considérer comme non-local pour forcer l'export
+    if os.getenv("TESTING", "false").lower() == "true":
+        return False
+
     return os.getenv("ENV", "local").strip().lower() == "local"
 
 
