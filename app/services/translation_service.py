@@ -70,18 +70,17 @@ class TranslationService:
         Raises:
             RuntimeError: Si le traducteur n'est pas initialisé
         """
-        if not self.is_loaded:
+        # Si le traducteur n'est pas chargé ou si les langues sont différentes,
+        # on l'initialise avec les nouvelles langues
+        if not self.is_loaded or (
+            self._translator and (
+                source_lang != self._translator.source
+                or target_lang != self._translator.target
+            )
+        ):
             self.load_model(source_lang, target_lang)
 
         try:
-            if (
-                source_lang != self._translator.source
-                or target_lang != self._translator.target
-            ):
-                self._translator = GoogleTranslator(
-                    source=source_lang, target=target_lang
-                )
-
             return self._translator.translate(text)
         except Exception as e:
             logger.error("Erreur lors de la traduction: %s", e)
