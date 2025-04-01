@@ -42,6 +42,7 @@ class TranslationService:
             logger.info("Traducteur initialisé avec succès")
         except Exception as e:
             logger.error("Erreur lors de l'initialisation du traducteur: %s", e)
+            self._translator = None  # Réinitialisation du translator en cas d'erreur
             raise
 
     @property
