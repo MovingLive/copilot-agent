@@ -298,14 +298,11 @@ def _search_in_index(
             )
             
             # Log des 3 premiers indices et distances pour débogage
-            for i in range(min(3, len(valid_indices))):
-                idx = indices[0][i]
-                if idx >= 0:
-                    logger.info(
-                        "🏆 Top %d: ID=%d, distance=%.4f", 
-                        i+1, idx, distances[0][i]
-                    )
-        
+            for i, idx in enumerate(valid_indices[:3]):
+                logger.info(
+                    "🏆 Top %d: ID=%d, distance=%.4f", 
+                    i+1, idx, distances[0][indices[0] == idx][0]
+                )
         return distances, indices
     except RuntimeError as e:
         logger.error("❌ Erreur lors de la recherche FAISS: %s", e)
