@@ -99,24 +99,66 @@ def detect_language(text: str) -> str:
             "would",
             "there",
             "their",
+            "need",
+            "help",
+            "can",
+            "get",
+            "has",
+            "about",
+            "how",
+            "why",
+            "when",
+            "what",
+            "where",
+            "who",
+            "which",
+            "me",
+            "us",
+            "am",
         }
 
         # Nettoyage et préparation du texte
-        words = set(word.lower() for word in text.split())
+        words = [word.lower() for word in text.split()]
+        word_set = set(words)
 
-        # Si le texte contient plusieurs mots anglais communs, c'est probablement de l'anglais
-        english_word_count = len(words.intersection(english_common_words))
-        if english_word_count >= 2:
-            return "en"
+        # Gestion spéciale pour les phrases très courtes (moins de 4 mots)
+        if len(words) < 4:
+            # Si au moins un mot est dans la liste des mots anglais communs
+            english_word_count = len(word_set.intersection(english_common_words))
+
+            # Pour les phrases très courtes, un seul mot anglais courant peut suffire
+            if english_word_count >= 1:
+                logger.debug(
+                    "Phrase courte détectée comme anglais: %s mots anglais courants",
+                    english_word_count,
+                )
+                return "en"
+
+            # Vérification supplémentaire pour les phrases typiquement anglaises
+            common_english_phrases = {"i need", "i am", "i have", "help me", "can you"}
+            lower_text = text.lower()
+            if any(phrase in lower_text for phrase in common_english_phrases):
+                logger.debug("Phrase anglaise courante détectée")
+                return "en"
+        else:
+            # Si le texte contient plusieurs mots anglais communs, c'est probablement de l'anglais
+            english_word_count = len(word_set.intersection(english_common_words))
+            if english_word_count >= 2:
+                logger.debug(
+                    "Texte détecté comme anglais: %s mots anglais courants",
+                    english_word_count,
+                )
+                return "en"
 
         # Configuration de langdetect pour plus de stabilité
         langdetect.DetectorFactory.seed = 0
         detected = langdetect.detect(text)
 
         # Correction des faux positifs connus de langdetect
-        if detected in ["so", "sw"] and any(
-            word in english_common_words for word in words
+        if detected in ["so", "sw", "nl", "da", "no"] and any(
+            word in english_common_words for word in word_set
         ):
+            logger.debug("Correction d'un faux positif potentiel: %s -> en", detected)
             return "en"
 
         return detected
