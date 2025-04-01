@@ -15,6 +15,7 @@ from app.api import copilot, health
 from app.core.config import settings
 from app.services import faiss_service
 from app.services.embedding_service import EmbeddingService
+from app.services.translation_service import TranslationService
 
 # Configuration du logging
 logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
@@ -31,6 +32,16 @@ async def lifespan(_: FastAPI):
         # Initialisation du modèle d'embedding
         logger.info("Initialisation du modèle d'embedding...")
         _ = EmbeddingService.get_instance().model
+
+        # Initialisation du modèle de traduction en background
+        logger.info("Initialisation du modèle de traduction...")
+        translation_service = TranslationService.get_instance()
+        translation_thread = threading.Thread(
+            target=translation_service.load_model,
+            name="translation_loader",
+            daemon=True,
+        )
+        translation_thread.start()
 
         # Initialisation de FAISS
         logger.info("Initialisation du service FAISS...")

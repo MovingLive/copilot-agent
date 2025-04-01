@@ -47,7 +47,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
 
     # Détection de la langue de la question
     query_lang = detect_language(query)
-    logger.debug("Langue détectée de la question: %s", query_lang)
+    logger.info("Langue détectée de la question: %s", query_lang)
 
     # Traduction de la question si nécessaire pour correspondre à la langue des documents
     translated_query = query

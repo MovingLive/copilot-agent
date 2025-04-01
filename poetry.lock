@@ -770,19 +770,18 @@ files = [
 ]
 
 [[package]]
-name = "langdetect"
-version = "1.0.9"
-description = "Language detection library ported from Google's language-detection."
+name = "langid"
+version = "1.1.6"
+description = "langid.py is a standalone Language Identification (LangID) tool."
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "langdetect-1.0.9-py2-none-any.whl", hash = "sha256:7cbc0746252f19e76f77c0b1690aadf01963be835ef0cd4b56dddf2a8f1dfc2a"},
-    {file = "langdetect-1.0.9.tar.gz", hash = "sha256:cbc1fef89f8d062739774bd51eda3da3274006b3661d199c2655f6b3f6d605a0"},
+    {file = "langid-1.1.6.tar.gz", hash = "sha256:044bcae1912dab85c33d8e98f2811b8f4ff1213e5e9a9e9510137b84da2cb293"},
 ]
 
 [package.dependencies]
-six = "*"
+numpy = "*"
 
 [[package]]
 name = "markupsafe"
@@ -2559,4 +2558,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12.9"
-content-hash = "c97bcfed08331b602679e2ab7bf6a4d0d93d132f46d9ae1939f7c4607b5eb191"
+content-hash = "8cc4153c29ce7333a4b0c3df75cd58f0038e9b02567a406be85c03699658edcb"
