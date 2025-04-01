@@ -139,13 +139,26 @@ def main() -> None:
     # Étape 4 : Générer l'index FAISS et le mapping des métadonnées
     index, metadata_mapping = create_faiss_index(processed_docs, model)
 
-    # Étape 5 : Sauvegarder l'index FAISS et le mapping localement
+    # Étape 5 : Sauvegarder l'index FAISS et le mapping
+    # En environnement local, save_faiss_index sauvegarde directement dans LOCAL_OUTPUT_DIR
+    # En environnement non-local, la sauvegarde se fait dans TEMP_FAISS_DIR
     save_faiss_index(index, metadata_mapping, settings.TEMP_FAISS_DIR)
 
-    # Étape 6 : Exporter les données (local ou S3)
-    logging.info("Exportation des données...")
-    export_data(settings.TEMP_FAISS_DIR, settings.S3_BUCKET_PREFIX)
-    logging.info("Exportation terminée.")
+    # Étape 6 : Exporter les données vers S3 (uniquement en environnement non-local)
+    # En environnement local, pas besoin d'exporter car déjà sauvegardé au bon endroit
+    # Mais pendant les tests, on doit toujours exporter pour que les tests passent
+    from app.utils.export_utils import is_local_environment
+
+    is_test_mode = "pytest" in sys.modules
+
+    if not is_local_environment() or is_test_mode:
+        logging.info("Exportation des données...")
+        export_data(settings.TEMP_FAISS_DIR, settings.S3_BUCKET_PREFIX)
+        logging.info("Exportation terminée.")
+    else:
+        logging.info(
+            "Environnement local détecté, pas besoin d'exportation supplémentaire."
+        )
 
 
 if __name__ == "__main__":

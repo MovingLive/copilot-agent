@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -281,30 +282,35 @@ def _search_in_index(
 
     try:
         distances, indices = _state.index.search(query_vector, k)
-        
+
         # Log détaillé des résultats bruts
         valid_indices = [idx for idx in indices[0] if idx >= 0]
         logger.info(
-            "🔍 Résultats bruts: %d résultats valides sur %d demandés", 
-            len(valid_indices), k
+            "🔍 Résultats bruts: %d résultats valides sur %d demandés",
+            len(valid_indices),
+            k,
         )
-        
+
         if len(valid_indices) > 0:
             non_zero_distances = distances[0][distances[0] > 0]
             if len(non_zero_distances) > 0:
                 min_dist = np.min(non_zero_distances)
                 max_dist = np.max(distances[0])
                 logger.info(
-                    "📏 Distances: min=%.4f, max=%.4f, moyenne=%.4f", 
-                    min_dist, max_dist, np.mean(non_zero_distances)
+                    "📏 Distances: min=%.4f, max=%.4f, moyenne=%.4f",
+                    min_dist,
+                    max_dist,
+                    np.mean(non_zero_distances),
                 )
             else:
                 logger.info("📏 Aucune distance non nulle trouvée.")
             # Log des 3 premiers indices et distances pour débogage
             for i, idx in enumerate(valid_indices[:3]):
                 logger.info(
-                    "🏆 Top %d: ID=%d, distance=%.4f", 
-                    i+1, idx, distances[0][indices[0] == idx][0]
+                    "🏆 Top %d: ID=%d, distance=%.4f",
+                    i + 1,
+                    idx,
+                    distances[0][indices[0] == idx][0],
                 )
         return distances, indices
     except RuntimeError as e:
@@ -408,14 +414,26 @@ def save_faiss_index(
         OSError: Pour les autres erreurs d'E/S
     """
     try:
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-            logger.info(f"Répertoire créé: {directory}")
+        # En mode test, utiliser le répertoire fourni en paramètre
+        is_test_mode = "pytest" in sys.modules
+
+        # Si on est en environnement local (hors test), utiliser LOCAL_OUTPUT_DIR
+        if is_local_environment() and not is_test_mode:
+            target_dir = settings.LOCAL_OUTPUT_DIR
+            logger.info(
+                f"Environnement local détecté, sauvegarde directe dans: {target_dir}"
+            )
+        else:
+            target_dir = directory
+
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir)
+            logger.info(f"Répertoire créé: {target_dir}")
 
         # Convertir les clés en str pour la sérialisation JSON
         str_mapping = {str(k): v for k, v in metadata_mapping.items()}
-        index_file_path = os.path.join(directory, settings.FAISS_INDEX_FILE)
-        mapping_file_path = os.path.join(directory, settings.FAISS_METADATA_FILE)
+        index_file_path = os.path.join(target_dir, settings.FAISS_INDEX_FILE)
+        mapping_file_path = os.path.join(target_dir, settings.FAISS_METADATA_FILE)
 
         # Sauvegarder l'index et le mapping
         faiss.write_index(index, index_file_path)

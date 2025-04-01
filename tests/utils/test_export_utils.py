@@ -77,10 +77,15 @@ def mock_env():
 # --- Tests ---
 def test_is_local_environment():
     """Teste la fonction is_local_environment."""
-    with patch.dict(os.environ, {"ENV": "local"}):
+    # Test du cas où TESTING n'est pas activé
+    with patch.dict(os.environ, {"ENV": "local", "TESTING": "false"}):
         assert is_local_environment() is True
 
-    with patch.dict(os.environ, {"ENV": "production"}):
+    with patch.dict(os.environ, {"ENV": "production", "TESTING": "false"}):
+        assert is_local_environment() is False
+    
+    # Test du cas où TESTING est activé (comme dans GitHub Actions)
+    with patch.dict(os.environ, {"ENV": "local", "TESTING": "true"}):
         assert is_local_environment() is False
 
 
