@@ -5,6 +5,16 @@ from unittest.mock import patch, MagicMock
 from app.services.translation_service import TranslationService
 
 
+@pytest.fixture(autouse=True)
+def reset_singleton():
+    """Fixture pour réinitialiser le singleton avant chaque test."""
+    TranslationService._instance = None
+    TranslationService._translator = None
+    yield
+    TranslationService._instance = None
+    TranslationService._translator = None
+
+
 @pytest.fixture
 def translation_service():
     """Fixture pour le service de traduction."""

@@ -17,20 +17,7 @@ def mock_translation_service():
     with patch.object(TranslationService, "get_instance") as mock_get_instance:
         service_mock = MagicMock()
         service_mock.is_loaded = True
-
-        tokenizer_mock = MagicMock()
-        tokenizer_mock.batch_decode.return_value = ["Translated text"]
-        tokenizer_mock.lang_code_to_id = {
-            "eng_Latn": 1,
-            "fra_Latn": 2,
-            "spa_Latn": 3,
-            "deu_Latn": 4,
-        }
-
-        model_mock = MagicMock()
-        model_mock.generate.return_value = "generated_tokens"
-
-        service_mock.model_and_tokenizer = (tokenizer_mock, model_mock)
+        service_mock.translate.return_value = "Translated text"
         mock_get_instance.return_value = service_mock
         yield service_mock
 
@@ -88,41 +75,22 @@ class TestTranslation:
 
     def test_translate_text_different_language(self, mock_translation_service):
         """Vérifier que la traduction est effectuée correctement avec le service de traduction."""
-        translated = translate_text(
-            "Bonjour le monde !", src_lang="fr", tgt_lang="en"
-        )
+        text = "Bonjour le monde !"
+        translated = translate_text(text, src_lang="fr", tgt_lang="en")
         assert translated == "Translated text"
 
-        # Vérifier que le service a été appelé avec les bons codes de langue NLLB
-        tokenizer, model = mock_translation_service.model_and_tokenizer
-        model.generate.assert_called_once()
-        # Vérifier que l'ID de la langue cible a été utilisé
-        called_args = model.generate.call_args[1]
-        assert 'forced_bos_token_id' in called_args
-        assert called_args['forced_bos_token_id'] == tokenizer.lang_code_to_id["eng_Latn"]
+        # Vérifier que le service a été appelé avec les bons paramètres
+        mock_translation_service.translate.assert_called_once_with(
+            text, source_lang="fr", target_lang="en"
+        )
 
-    def test_translate_text_service_not_loaded(self):
-        """Vérifier le comportement lorsque le service de traduction n'est pas chargé."""
-        with patch.object(TranslationService, "get_instance") as mock_get_instance:
-            service_mock = MagicMock()
-            service_mock.is_loaded = False
-            mock_get_instance.return_value = service_mock
-
-            original = "Bonjour le monde !"
-            assert translate_text(original, src_lang="fr", tgt_lang="en") == original
-
-    def test_translate_text_error_handling(self):
+    def test_translate_text_error_handling(self, mock_translation_service):
         """Vérifier la gestion des erreurs lors de la traduction."""
-        with patch.object(TranslationService, "get_instance") as mock_get_instance:
-            service_mock = MagicMock()
-            service_mock.is_loaded = True
-            service_mock.model_and_tokenizer = (MagicMock(), MagicMock())
-            service_mock.model_and_tokenizer[1].generate.side_effect = Exception("Test error")
-            mock_get_instance.return_value = service_mock
+        mock_translation_service.translate.side_effect = Exception("Test error")
 
-            # En cas d'erreur, le texte original doit être retourné
-            original = "Bonjour le monde !"
-            assert translate_text(original, src_lang="fr", tgt_lang="en") == original
+        # En cas d'erreur, le texte original doit être retourné
+        original = "Bonjour le monde !"
+        assert translate_text(original, src_lang="fr", tgt_lang="en") == original
 
     def test_translate_text_empty(self):
         """Vérifier la gestion des textes vides."""
@@ -134,17 +102,13 @@ class TestTranslation:
         text = "Hello, world!"
         assert translate_text(text, src_lang="unknown", tgt_lang="en") == text
 
-    def test_translate_text_nllb_language_mapping(self, mock_translation_service):
-        """Vérifier le mappage correct des codes de langue ISO vers NLLB."""
-        lang_pairs = [
-            ("fr", "en", "fra_Latn", "eng_Latn"),
-            ("es", "de", "spa_Latn", "deu_Latn"),
-        ]
+    def test_translate_text_auto_language_detection(self, mock_translation_service):
+        """Vérifier la détection automatique de la langue source."""
+        text = "Bonjour le monde !"
+        translated = translate_text(text, tgt_lang="en")
+        assert translated == "Translated text"
 
-        for src_iso, tgt_iso, src_nllb, tgt_nllb in lang_pairs:
-            translate_text("Test text", src_lang=src_iso, tgt_lang=tgt_iso)
-
-            # Vérifier que le bon code NLLB a été utilisé
-            tokenizer, _ = mock_translation_service.model_and_tokenizer
-            called_args = mock_translation_service.model_and_tokenizer[1].generate.call_args[1]
-            assert called_args['forced_bos_token_id'] == tokenizer.lang_code_to_id[tgt_nllb]
+        # Vérifier que le service a été appelé avec la bonne langue source détectée
+        mock_translation_service.translate.assert_called_once_with(
+            text, source_lang="fr", target_lang="en"
+        )

@@ -66,14 +66,11 @@ class TranslationService:
 
         Returns:
             str: Texte traduit
-
-        Raises:
-            RuntimeError: Si le traducteur n'est pas initialisé
         """
-        # Si le traducteur n'est pas chargé ou si les langues sont différentes,
-        # on l'initialise avec les nouvelles langues
+        # Initialisation automatique du traducteur si nécessaire
         if not self.is_loaded or (
-            self._translator and (
+            self._translator
+            and (
                 source_lang != self._translator.source
                 or target_lang != self._translator.target
             )
