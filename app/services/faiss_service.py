@@ -290,13 +290,16 @@ def _search_in_index(
         )
         
         if len(valid_indices) > 0:
-            min_dist = np.min(distances[0][distances[0] > 0])
-            max_dist = np.max(distances[0])
-            logger.info(
-                "📏 Distances: min=%.4f, max=%.4f, moyenne=%.4f", 
-                min_dist, max_dist, np.mean(distances[0][distances[0] > 0])
-            )
-            
+            non_zero_distances = distances[0][distances[0] > 0]
+            if len(non_zero_distances) > 0:
+                min_dist = np.min(non_zero_distances)
+                max_dist = np.max(distances[0])
+                logger.info(
+                    "📏 Distances: min=%.4f, max=%.4f, moyenne=%.4f", 
+                    min_dist, max_dist, np.mean(non_zero_distances)
+                )
+            else:
+                logger.info("📏 Aucune distance non nulle trouvée.")
             # Log des 3 premiers indices et distances pour débogage
             for i, idx in enumerate(valid_indices[:3]):
                 logger.info(
