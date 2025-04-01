@@ -19,9 +19,9 @@ pydantic = "^2.6.3"
 pytest-mock = "^3.14.0"
 boto = "^2.49.0"
 pyjwt = "^2.10.1"
-langdetect = "^1.0.9"
 sentencepiece = "^0.2.0"
 transformers = "^4.50.3"
+langid = "^1.1.6"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.2"

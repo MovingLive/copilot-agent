@@ -31,7 +31,7 @@ class TestLanguageDetection:
 
     def test_detect_language_error_handling(self):
         """Vérifier que les erreurs sont gérées correctement."""
-        with patch("langdetect.detect", side_effect=Exception("Test error")):
+        with patch("langid.classify", side_effect=Exception("Test error")):
             assert detect_language("Test") == "unknown"
 
 

@@ -8,7 +8,7 @@ multilingue (M2M100).
 import logging
 from functools import lru_cache
 
-import langdetect
+import langid
 from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
 
 from app.core.config import settings
@@ -16,8 +16,10 @@ from app.core.config import settings
 # Configuration du logger
 logger = logging.getLogger(__name__)
 
-# Configuration de langdetect pour une détection stable
-langdetect.DetectorFactory.seed = 0
+# Configuration de langid pour une meilleure détection
+langid.set_languages(
+    ["en", "fr", "es", "de", "it", "pt", "nl", "ru", "ja", "zh", "ar", "ko", "hi"]
+)
 
 
 @lru_cache(maxsize=1)
@@ -117,16 +119,78 @@ def detect_language(text: str) -> str:
             "am",
         }
 
+        # Liste de mots français courants pour validation supplémentaire
+        french_common_words = {
+            "le",
+            "la",
+            "les",
+            "un",
+            "une",
+            "des",
+            "et",
+            "est",
+            "sont",
+            "ce",
+            "cette",
+            "ces",
+            "je",
+            "tu",
+            "il",
+            "elle",
+            "nous",
+            "vous",
+            "ils",
+            "elles",
+            "mon",
+            "ton",
+            "son",
+            "notre",
+            "votre",
+            "leur",
+            "pour",
+            "avec",
+            "sans",
+            "dans",
+            "sur",
+            "sous",
+            "entre",
+            "qui",
+            "que",
+            "quoi",
+            "comment",
+            "pourquoi",
+            "quand",
+            "où",
+            "ceci",
+            "cela",
+            "ai",
+            "as",
+            "avons",
+            "avez",
+            "ont",
+            "suis",
+            "es",
+            "sommes",
+            "êtes",
+        }
+
         # Nettoyage et préparation du texte
         words = [word.lower() for word in text.split()]
         word_set = set(words)
 
         # Gestion spéciale pour les phrases très courtes (moins de 4 mots)
         if len(words) < 4:
-            # Si au moins un mot est dans la liste des mots anglais communs
-            english_word_count = len(word_set.intersection(english_common_words))
+            # Vérifier si des mots français connus sont présents
+            french_word_count = len(word_set.intersection(french_common_words))
+            if french_word_count >= 1:
+                logger.debug(
+                    "Phrase courte détectée comme français: %s mots français courants",
+                    french_word_count,
+                )
+                return "fr"
 
-            # Pour les phrases très courtes, un seul mot anglais courant peut suffire
+            # Vérifier si des mots anglais connus sont présents
+            english_word_count = len(word_set.intersection(english_common_words))
             if english_word_count >= 1:
                 logger.debug(
                     "Phrase courte détectée comme anglais: %s mots anglais courants",
@@ -134,14 +198,34 @@ def detect_language(text: str) -> str:
                 )
                 return "en"
 
-            # Vérification supplémentaire pour les phrases typiquement anglaises
+            # Vérification pour les phrases typiquement anglaises
             common_english_phrases = {"i need", "i am", "i have", "help me", "can you"}
             lower_text = text.lower()
             if any(phrase in lower_text for phrase in common_english_phrases):
                 logger.debug("Phrase anglaise courante détectée")
                 return "en"
+
+            # Vérification pour les phrases typiquement françaises
+            common_french_phrases = {
+                "je suis",
+                "j'ai",
+                "aidez-moi",
+                "pouvez-vous",
+                "ceci est",
+            }
+            if any(phrase in lower_text for phrase in common_french_phrases):
+                logger.debug("Phrase française courante détectée")
+                return "fr"
         else:
-            # Si le texte contient plusieurs mots anglais communs, c'est probablement de l'anglais
+            # Pour les phrases plus longues, vérifier d'abord les mots connus
+            french_word_count = len(word_set.intersection(french_common_words))
+            if french_word_count >= 2:
+                logger.debug(
+                    "Texte détecté comme français: %s mots français courants",
+                    french_word_count,
+                )
+                return "fr"
+
             english_word_count = len(word_set.intersection(english_common_words))
             if english_word_count >= 2:
                 logger.debug(
@@ -150,18 +234,25 @@ def detect_language(text: str) -> str:
                 )
                 return "en"
 
-        # Configuration de langdetect pour plus de stabilité
-        langdetect.DetectorFactory.seed = 0
-        detected = langdetect.detect(text)
+        # Utiliser langid pour la détection de langue
+        lang, confidence = langid.classify(text)
+        logger.debug("Langue détectée par langid: %s (confiance: %s)", lang, confidence)
 
-        # Correction des faux positifs connus de langdetect
-        if detected in ["so", "sw", "nl", "da", "no"] and any(
-            word in english_common_words for word in word_set
-        ):
-            logger.debug("Correction d'un faux positif potentiel: %s -> en", detected)
-            return "en"
+        # Si la confiance est faible, appliquer des règles additionnelles
+        if confidence < 0.5:
+            # Vérifier si d'autres indicateurs peuvent nous aider
+            if any(word in french_common_words for word in word_set):
+                logger.debug(
+                    "Correction de la détection à faible confiance vers français"
+                )
+                return "fr"
+            if any(word in english_common_words for word in word_set):
+                logger.debug(
+                    "Correction de la détection à faible confiance vers anglais"
+                )
+                return "en"
 
-        return detected
+        return lang
     except Exception as e:
         logger.error("Erreur de détection de langue: %s", e)
         return "unknown"
