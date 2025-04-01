@@ -277,10 +277,38 @@ def _search_in_index(
 
     # Configure les paramètres de recherche optimaux
     search_params = configure_search_parameters(k, precision_priority)
+    logger.info("🔍 Recherche avec paramètres: %s", search_params)
 
     try:
-        return _state.index.search(query_vector, k)
+        distances, indices = _state.index.search(query_vector, k)
+        
+        # Log détaillé des résultats bruts
+        valid_indices = [idx for idx in indices[0] if idx >= 0]
+        logger.info(
+            "🔍 Résultats bruts: %d résultats valides sur %d demandés", 
+            len(valid_indices), k
+        )
+        
+        if len(valid_indices) > 0:
+            min_dist = np.min(distances[0][distances[0] > 0])
+            max_dist = np.max(distances[0])
+            logger.info(
+                "📏 Distances: min=%.4f, max=%.4f, moyenne=%.4f", 
+                min_dist, max_dist, np.mean(distances[0][distances[0] > 0])
+            )
+            
+            # Log des 3 premiers indices et distances pour débogage
+            for i in range(min(3, len(valid_indices))):
+                idx = indices[0][i]
+                if idx >= 0:
+                    logger.info(
+                        "🏆 Top %d: ID=%d, distance=%.4f", 
+                        i+1, idx, distances[0][i]
+                    )
+        
+        return distances, indices
     except RuntimeError as e:
+        logger.error("❌ Erreur lors de la recherche FAISS: %s", e)
         raise FAISSServiceError(f"Erreur lors de la recherche FAISS: {str(e)}") from e
 
 
