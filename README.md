@@ -211,40 +211,50 @@ Vous pouvez vérifier si l'API fonctionne correctement en envoyant une requête 
 
 ### Objectif principal du script
 
-Mettre à jour quotidiennement (toutes les 24 heures) une base de données vectorielle FAISS indexant la documentation (environ 150 Mo de fichiers Markdown) pour servir un agent GitHub Copilot destiné à des centaines de développeurs.
+Le script met à jour un index vectoriel (FAISS) en indexant des fichiers Markdown pour servir de base de connaissances à l'agent GitHub Copilot. L'index est mis à jour toutes les 24 heures via GitHub Actions.
 
-### Contexte du script
+### Architecture du script `/scripts/update_faiss.py`
 
-- **FAISS**: Librairie de Facebook pour la recherche efficace d'embeddings. `/scripts/update_faiss.py`
+1. **Extraction & Pré-traitement**
+   - Clone ou mise à jour de multiples dépôts Git spécifiés via `REPO_URLS`
+   - Lecture et traitement des fichiers Markdown avec détection et traduction automatique
+   - Segmentation intelligente du contenu en unités sémantiques avec chevauchement
 
-### Architecture du script
+2. **Génération des embeddings**
+   - Utilisation du modèle "all-MiniLM-L6-v2" pour générer les vecteurs
+   - Cache vectoriel pour optimiser les performances
+   - Support multilingue avec traduction automatique
 
-- **Extraction & Pré-traitement:** Un script Python qui clônera le dépôt GitHub, lira et traitera les 100 fichiers Markdown pour les diviser en segments pertinents.
-- **Génération des embeddings:** Pour chaque segment, on génère un vecteur d’embedding. Même si votre agent utilisera le LLM de Copilot pour répondre aux requêtes, il faut disposer d’un index efficace ; un modèle d’embedding léger et performant (comme « all-MiniLM-L6-v2 » par exemple) peut être utilisé pour obtenir une bonne qualité de recherche.
-- **Persistance sur AWS S3:** La base vectorielle est persistée dans un dossier local, puis synchronisée vers votre bucket S3 (déjà protégé) pour un stockage centralisé et accessible depuis votre instance AWS.
-- **Automatisation via GitHub Actions:** Une action planifiée (cron) déclenche l’exécution quotidienne du script pour mettre à jour la base vectorielle.
+3. **Persistance flexible**
+   - Stockage local dans le dossier `/output` en mode développement
+   - Synchronisation vers AWS S3 en production
+   - Gestion automatique des environnements via la variable `ENV`
+
+4. **Fiabilité et Robustesse**
+   - Gestion des dépôts Git privés avec support PAT/JWT
+   - Récupération sur erreur lors du clonage des dépôts
+   - Support des systèmes de fichiers en lecture seule
 
 ### Outputs
 
-#### Le fichier .faiss
+Le script génère deux fichiers essentiels :
 
-Ce fichier contient l'index vectoriel lui-même. C’est un binaire optimisé pour :
+#### Le fichier `index.faiss`
 
-- Stocker les vecteurs (embeddings)
-- Permettre une recherche rapide de similarité (approximate nearest neighbor search)
-- Être chargé rapidement en mémoire pour faire des requêtes
+Fichier binaire FAISS optimisé contenant :
 
-Ce fichier est utilisé directement par FAISS au moment où tu fais une recherche. Il est donc crucial pour l’inférence.
+- Vecteurs d'embedding normalisés
+- Structure d'index pour recherche rapide (FlatL2/IVF/HNSW selon la taille)
+- Mapping des IDs pour lier aux métadonnées
 
-### Le fichier .json
+#### Le fichier `metadata.json`
 
-Ce fichier contient les métadonnées associées aux vecteurs. Typiquement :
+JSON structuré contenant pour chaque vecteur :
 
-- L’ID ou la clé de chaque vecteur
-- Le contenu original (texte, titre, URL, etc.)
-- Toute autre information utile à restituer quand tu fais une recherche
-
-Quand tu fais une requête dans ton moteur de recherche vectoriel, tu obtiens un ou plusieurs vecteurs similaires depuis FAISS (grâce au .faiss), mais pour afficher les résultats à l’utilisateur, tu as besoin de retrouver ce que représentait chaque vecteur → c’est là que le .json est utile.
+- ID numérique unique
+- Chemin du fichier source
+- Contenu textuel du segment
+- Métadonnées additionnelles (langue, section, etc.)
 
 ### Configuration du système
 

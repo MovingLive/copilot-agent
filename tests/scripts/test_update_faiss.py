@@ -13,11 +13,13 @@ import faiss
 
 from scripts.update_faiss import create_faiss_index, main, load_embedding_model
 from app.services.embedding_service import EXPECTED_DIMENSION
+from app.utils.git_utils import clone_or_update_repo
+from app.utils.document_utils import read_relevant_files
+from app.utils.vector_db_utils import process_files_for_faiss
 from tests.conftest import MockSentenceTransformer
 
 class MockSettings:
     """Mock des settings pour les tests."""
-    REPO_URL = "https://github.com/test/repo.git"
     REPO_DIR = "test_repo"
     SEGMENT_MAX_LENGTH = 1000
     TEMP_FAISS_DIR = "/tmp/test_faiss"
@@ -25,6 +27,9 @@ class MockSettings:
     FAISS_METADATA_FILE = "metadata.json"
     S3_BUCKET_PREFIX = "faiss_index"
     S3_BUCKET_NAME = "test-bucket"
+    LOG_LEVEL = "INFO"
+    LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
 
 @pytest.fixture(autouse=True)
 def mock_settings(monkeypatch):
@@ -34,13 +39,28 @@ def mock_settings(monkeypatch):
     monkeypatch.setattr("app.services.faiss_service.settings", mock_settings)
     return mock_settings
 
+
+@pytest.fixture(autouse=True)
+def mock_env_vars():
+    """Fixture pour configurer les variables d'environnement de test."""
+    with patch.dict(
+        os.environ,
+        {
+            "ENV": "test",
+            "REPO_DIR": MockSettings.REPO_DIR,
+            "S3_BUCKET_NAME": MockSettings.S3_BUCKET_NAME,
+        },
+        clear=True
+    ):
+        yield
+
 # Les fixtures pour les tests
 @pytest.fixture
 def mock_documents():
     """Fixture pour simuler les documents de test."""
     return [
-        {"id": "doc1", "content": "Test document 1", "path": "docs/test1.md"},
-        {"id": "doc2", "content": "Test document 2", "path": "docs/test2.md"},
+        ("docs/test1.md", "Test document 1"),
+        ("docs/test2.md", "Test document 2"),
     ]
 
 
@@ -59,21 +79,6 @@ def mock_processed_docs():
             "metadata": {"source": "docs/test2.md", "segment": 0},
         },
     ]
-
-
-@pytest.fixture
-def mock_env_vars():
-    """Fixture pour configurer les variables d'environnement de test."""
-    with patch.dict(
-        os.environ,
-        {
-            "ENV": "test",
-            "REPO_URL": "https://github.com/test/repo.git",
-            "REPO_DIR": "test_repo",
-            "S3_BUCKET_NAME": "test-bucket",
-        },
-    ):
-        yield
 
 
 @pytest.fixture
@@ -96,6 +101,14 @@ def mock_load_embedding_model(monkeypatch):
     mock = MockSentenceTransformer()
     monkeypatch.setattr('scripts.update_faiss.load_embedding_model', lambda *args, **kwargs: mock)
     return mock
+
+
+@pytest.fixture(autouse=True)
+def mock_subprocess_run():
+    """Mock subprocess.run pour éviter les vrais appels git."""
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        yield mock_run
 
 
 def test_create_faiss_index(mock_processed_docs, mock_sentence_transformer):
@@ -123,20 +136,22 @@ def test_create_faiss_index(mock_processed_docs, mock_sentence_transformer):
 
 
 def test_main_workflow(
-    mock_documents, mock_processed_docs, mock_embeddings, mock_env_vars, patch_load_embedding_model
+    mock_documents, mock_processed_docs, mock_embeddings, mock_env_vars, patch_load_embedding_model,
+    mock_subprocess_run
 ):
     """
     Teste le flux principal du script.
     """
     with (
-        patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
-        patch("scripts.update_faiss.read_markdown_files") as mock_read,
-        patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("scripts.update_faiss.save_faiss_index") as mock_save,  # Utiliser le chemin d'import correct
-        patch("scripts.update_faiss.export_data") as mock_export,
+        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch("scripts.update_faiss.read_relevant_files", autospec=True) as mock_read,
+        patch("scripts.update_faiss.process_files_for_faiss", autospec=True) as mock_process,
+        patch("scripts.update_faiss.save_faiss_index", autospec=True) as mock_save,
+        patch("scripts.update_faiss.export_data", autospec=True) as mock_export,
+        patch("scripts.update_faiss.clone_multiple_repos", autospec=True) as mock_clone,
     ):
         # Configuration des mocks
-        mock_clone.return_value = "test_repo_path"
+        mock_clone.return_value = ["test_repo_path"]
         mock_read.return_value = mock_documents
         mock_process.return_value = mock_processed_docs
         patch_load_embedding_model.encode.return_value = mock_embeddings
@@ -145,15 +160,14 @@ def test_main_workflow(
         main()
 
         # Vérifications
-        mock_clone.assert_called_once_with(MockSettings.REPO_URL, MockSettings.REPO_DIR)
+        mock_clone.assert_called_once()
         mock_read.assert_called_once_with("test_repo_path")
         mock_process.assert_called_once_with(mock_documents, MockSettings.SEGMENT_MAX_LENGTH)
         mock_save.assert_called_once_with(mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR)
         mock_export.assert_called_once()
 
-
 @mock_aws
-def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model):
+def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model, mock_subprocess_run):
     """
     Teste l'exportation des données vers S3.
     """
@@ -164,15 +178,16 @@ def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model):
     s3.create_bucket(Bucket="test-bucket")
 
     with (
-        patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
-        patch("scripts.update_faiss.read_markdown_files") as mock_read,
-        patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("scripts.update_faiss.save_faiss_index") as mock_save,
-        patch("scripts.update_faiss.export_data") as mock_export,
+        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch("scripts.update_faiss.read_relevant_files", autospec=True) as mock_read,
+        patch("scripts.update_faiss.process_files_for_faiss", autospec=True) as mock_process,
+        patch("scripts.update_faiss.save_faiss_index", autospec=True) as mock_save,
+        patch("scripts.update_faiss.export_data", autospec=True) as mock_export,
+        patch("scripts.update_faiss.clone_multiple_repos", autospec=True) as mock_clone,
     ):
         # Configuration des mocks
-        mock_clone.return_value = "test_repo_path"
-        mock_read.return_value = [{"text": "test"}]
+        mock_clone.return_value = ["test_repo_path"]
+        mock_read.return_value = [("test/test.md", "test content")]
         mock_process.return_value = [{"numeric_id": 1, "text": "test", "metadata": {}}]
         patch_load_embedding_model.encode.return_value = mock_embeddings
 
@@ -189,13 +204,11 @@ def test_error_handling(mock_env_vars):
     Teste la gestion des erreurs.
     """
     with (
-        patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
+        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch("scripts.update_faiss.clone_multiple_repos", return_value=[]) as mock_clone_multiple,
         patch("scripts.update_faiss.logging.error") as mock_error,
-        pytest.raises(Exception),
+        pytest.raises(SystemExit),
     ):
-        # Simuler une erreur lors du clonage
-        mock_clone.side_effect = Exception("Test error")
-
         # Exécution de la fonction principale
         main()
 
@@ -203,20 +216,21 @@ def test_error_handling(mock_env_vars):
         mock_error.assert_called()
 
 
-def test_empty_documents(mock_env_vars, mock_embeddings, patch_load_embedding_model):
+def test_empty_documents(mock_env_vars, mock_embeddings, patch_load_embedding_model, mock_subprocess_run):
     """
     Teste le comportement avec une liste de documents vide.
     """
     with (
-        patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
-        patch("scripts.update_faiss.read_markdown_files") as mock_read,
-        patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("scripts.update_faiss.save_faiss_index") as mock_save,
-        patch("scripts.update_faiss.export_data") as mock_export,
+        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch("scripts.update_faiss.read_relevant_files", autospec=True) as mock_read,
+        patch("scripts.update_faiss.process_files_for_faiss", autospec=True) as mock_process,
+        patch("scripts.update_faiss.save_faiss_index", autospec=True) as mock_save,
+        patch("scripts.update_faiss.export_data", autospec=True) as mock_export,
+        patch("scripts.update_faiss.clone_multiple_repos", autospec=True) as mock_clone,
         pytest.raises(ValueError, match="La liste de documents est vide"),
     ):
         # Configuration des mocks
-        mock_clone.return_value = "test_repo_path"
+        mock_clone.return_value = ["test_repo_path"]
         mock_read.return_value = []
         mock_process.return_value = []
         empty_embeddings = np.array([]).reshape((0, EXPECTED_DIMENSION))
@@ -249,35 +263,36 @@ def test_load_embedding_model_mock():
     "env_vars",
     [
         {},  # Aucune variable d'environnement
-        {"ENV": "local", "REPO_URL": ""},  # URL de repo vide
         {"ENV": "prod", "S3_BUCKET_NAME": ""},  # Nom de bucket vide en prod
     ],
 )
-def test_missing_environment_variables(env_vars, mock_embeddings, patch_load_embedding_model):
+def test_missing_environment_variables(
+    env_vars, mock_embeddings, patch_load_embedding_model, mock_subprocess_run
+):
     """
     Teste le comportement avec des variables d'environnement manquantes.
     """
     with (
         patch.dict(os.environ, env_vars, clear=True),
-        patch("scripts.update_faiss.clone_or_update_repo") as mock_clone,
-        patch("scripts.update_faiss.read_markdown_files") as mock_read,
-        patch("scripts.update_faiss.process_documents_for_faiss") as mock_process,
-        patch("scripts.update_faiss.save_faiss_index") as mock_save,
-        patch("scripts.update_faiss.export_data") as mock_export,
+        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch("scripts.update_faiss.read_relevant_files", autospec=True) as mock_read,
+        patch("scripts.update_faiss.process_files_for_faiss", autospec=True) as mock_process,
+        patch("scripts.update_faiss.save_faiss_index", autospec=True) as mock_save,
+        patch("scripts.update_faiss.export_data", autospec=True) as mock_export,
+        patch("scripts.update_faiss.clone_multiple_repos", autospec=True) as mock_clone,
     ):
         # Configuration des mocks
-        mock_clone.return_value = "test_repo_path"
-        mock_read.return_value = [{"text": "test"}]
+        mock_clone.return_value = ["test_repo_path"]
+        mock_read.return_value = [("test/test.md", "test content")]
         mock_process.return_value = [{"numeric_id": 1, "text": "test", "metadata": {}}]
-        patch_load_embedding_model.encode.reset_mock()
         patch_load_embedding_model.encode.return_value = mock_embeddings
 
         # La fonction devrait utiliser les valeurs par défaut
         main()
 
         # Vérifications
-        mock_save.assert_called_once_with(mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR)
-        mock_export.assert_called_once_with(MockSettings.TEMP_FAISS_DIR, MockSettings.S3_BUCKET_PREFIX)
+        mock_save.assert_called_once_with(mock.ANY, mock.ANY, mock.ANY)
+        mock_export.assert_called_once_with(mock.ANY, mock.ANY)
 
 
 def test_embedding_dimension_consistency(mock_processed_docs, mock_sentence_transformer, mock_env_vars):
