@@ -12,147 +12,37 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-async def get_github_user(auth_token: str) -> str:
-    """Récupère les informations de l'utilisateur GitHub.
-
-    Args:
-        auth_token: Token d'authentification GitHub
-
-    Returns:
-        str: Login de l'utilisateur
-
-    Raises:
-        HTTPException: En cas d'erreur d'authentification
-    """
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(
-                "https://api.github.com/user",
-                headers={"Authorization": f"Bearer {auth_token}"},
-            )
-            response.raise_for_status()
-            user_data = response.json()
-            return user_data.get("login")
-        except Exception as e:
-            logger.error("Erreur lors de l'authentification GitHub: %s", e)
-            raise HTTPException(status_code=401, detail="Token GitHub invalide") from e
-
-
-def prioritize_context(context_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Pondère et ordonne les documents contextuels par pertinence.
-
-    Args:
-        context_docs: Liste des documents de contexte avec leurs scores de distance
-
-    Returns:
-        Liste triée et pondérée des documents de contexte
-    """
-    # Trier par score de distance (plus petit = plus proche)
-    sorted_docs = sorted(context_docs, key=lambda x: x.get("distance", float("inf")))
-
-    # Limiter au nombre de documents les plus pertinents
-    max_docs = min(len(sorted_docs), 5)
-    relevant_docs = sorted_docs[:max_docs]
-
-    return relevant_docs
-
-
-def extract_key_facts(
-    context_docs: list[dict[str, Any]], max_facts: int = 10
-) -> list[str]:
-    """Extrait les informations clés des documents de contexte.
-
-    Args:
-        context_docs: Liste des documents de contexte
-        max_facts: Nombre maximum de faits à extraire
-
-    Returns:
-        Liste des faits clés extraits
-    """
-    key_facts = []
-    for doc in context_docs:
-        content = doc.get("content", "")
-        if not content:
-            continue
-
-        # Extraire des phrases pertinentes (simpliste pour l'instant)
-        sentences = [s.strip() for s in content.split(".") if len(s.strip()) > 20]
-        for sentence in sentences:
-            if len(key_facts) >= max_facts:
-                break
-            # Éviter les doublons
-            if sentence not in key_facts:
-                key_facts.append(sentence)
-
-    return key_facts
-
-
-def format_structured_context(
-    context_docs: list[dict[str, Any]], key_facts: list[str]
-) -> str:
-    """Formate le contexte de façon structurée pour le LLM.
-
-    Args:
-        context_docs: Documents de contexte
-        key_facts: Faits clés extraits
-
-    Returns:
-        Contexte formaté sous forme de chaîne
-    """
-    if not context_docs:
-        return "Aucune information contextuelle disponible."
-
-    # Section 1: Faits clés
-    formatted_context = "## Faits clés\n"
-    for i, fact in enumerate(key_facts, 1):
-        formatted_context += f"{i}. {fact}\n"
-
-    # Section 2: Sources documentaires
-    formatted_context += "\n## Sources détaillées\n"
-    for i, doc in enumerate(context_docs, 1):
-        # Extraire les métadonnées utiles
-        metadata = doc.get("metadata", {})
-        source = metadata.get("source", "Source inconnue")
-        title = metadata.get("title", "Sans titre")
-
-        # Ajouter un extrait de contenu
-        content_preview = doc.get("content", "")[:200] + "..."
-        formatted_context += f"\n### Source {i}: {title} ({source})\n"
-        formatted_context += f"{content_preview}\n"
-
-    return formatted_context
-
-
-def format_copilot_messages(
-    query: str, context: list[dict[str, Any]], user_login: str
-) -> list[dict]:
-    """Formate les messages pour l'API Copilot avec un contexte mieux structuré.
+def format_copilot_messages(query: str, context: list[dict[str, Any]]) -> list[dict]:
+    """Formate les messages pour l'API Copilot.
 
     Args:
         query: La requête de l'utilisateur
         context: Liste des documents contextuels
-        user_login: Identifiant de l'utilisateur GitHub
 
     Returns:
         Liste de messages formatés pour l'API Copilot
     """
-    # Traiter et structurer le contexte
-    weighted_context = prioritize_context(context)
-    key_facts = extract_key_facts(weighted_context)
-    formatted_context = format_structured_context(weighted_context, key_facts)
+    # Construction simple du contexte
+    context_text = "Aucune information contextuelle disponible."
+
+    if context:
+        context_text = ""
+        for i, doc in enumerate(context, 1):
+            metadata = doc.get("metadata", {})
+            source = metadata.get("source", "Source inconnue")
+
+            content = doc.get("content", "").strip()
+            if content:
+                context_text += f"[{i}] {source}: {content[:300]}...\n\n"
 
     return [
         {
             "role": "system",
-            "content": "Tu es un assistant spécialisé dans les GitHub actions et les workflows.",
+            "content": "Tu es un assistant spécialisé dans les outils DevSecOps.",
         },
         {
             "role": "system",
-            "content": f"Réponds de façon claire et concise à @{user_login}.",
-        },
-        {
-            "role": "system",
-            "content": f"Utilise ces informations factuelles pour répondre:\n\n{formatted_context}",
+            "content": f"Utilise ces informations factuelles pour répondre:\n\n{context_text}",
         },
         {
             "role": "system",

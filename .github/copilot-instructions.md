@@ -32,10 +32,11 @@ Workspace
 
 ## Tech Stack
 
-- poetry
+- Python 3.12
+- Poetry
 - Fast API
 - Pydantic V2
-- Pyunit
+- PyUnit
 - GitHub Action
 
 ## Naming Conventions
