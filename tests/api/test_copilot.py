@@ -13,7 +13,6 @@ client = TestClient(app)
 
 # Données de test
 TEST_TOKEN = "fake_github_token"
-TEST_USER = "testuser"
 TEST_QUERY_FR = "Comment utiliser FastAPI?"  # Question en français
 TEST_QUERY_EN = "How to use FastAPI?"  # Question en anglais
 TEST_CONTEXT = "Documentation FastAPI"
@@ -27,14 +26,10 @@ async def test_handle_copilot_query_success(mock_sentence_transformer):
         "copilot_references": TEST_CONTEXT,
     }
 
-    async def mock_get_github_user(token):
-        return TEST_USER
-
     async def mock_generate_streaming_response(req_data, token):
         yield b'{"response": "test"}'
 
     with (
-        patch("app.api.copilot.get_github_user", side_effect=mock_get_github_user),
         patch("app.services.embedding_service.generate_query_vector", return_value=np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)),
         patch("app.services.faiss_service.retrieve_similar_documents", return_value=[
             {"content": "FastAPI est un framework moderne pour Python"}
@@ -55,14 +50,10 @@ async def test_handle_copilot_query_with_context(mock_sentence_transformer):
         "copilot_references": TEST_CONTEXT,
     }
 
-    async def mock_get_github_user(token):
-        return TEST_USER
-
     async def mock_generate_streaming_response(req_data, token):
         yield b'{"response": "test with context"}'
 
     with (
-        patch("app.api.copilot.get_github_user", side_effect=mock_get_github_user),
         patch("app.services.embedding_service.generate_query_vector", return_value=np.zeros((1, EXPECTED_DIMENSION), dtype=np.float32)),
         patch("app.services.faiss_service.retrieve_similar_documents", return_value=[
             {"content": "FastAPI est un framework moderne"},
@@ -81,14 +72,13 @@ async def test_handle_copilot_query_service_error():
     headers = {"x-github-token": TEST_TOKEN}
     data = {"messages": [{"role": "user", "content": TEST_QUERY_EN}]}
 
-    async def mock_get_github_user(token):
-        raise HTTPException(status_code=401, detail="Token GitHub invalide")
-
-    with patch("app.api.copilot.get_github_user", side_effect=mock_get_github_user):
+    # Simuler une erreur dans la fonction detect_language (appelée avant le streaming)
+    with patch("app.api.copilot.detect_language",
+              side_effect=HTTPException(status_code=503, detail="Service de détection de langue indisponible")):
         async with AsyncClient(app=app, base_url="http://test") as ac:
             response = await ac.post("/", json=data, headers=headers)
-            assert response.status_code == 401
-            assert response.json()["detail"] == "Token GitHub invalide"
+            assert response.status_code == 503
+            assert "Service de détection de langue indisponible" in response.text
 
 def test_handle_copilot_query_missing_token():
     """Test de l'erreur lors d'un token manquant."""
