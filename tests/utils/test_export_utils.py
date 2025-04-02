@@ -83,7 +83,7 @@ def test_is_local_environment():
 
     with patch.dict(os.environ, {"ENV": "production", "TESTING": "false"}):
         assert is_local_environment() is False
-    
+
     # Test du cas où TESTING est activé (comme dans GitHub Actions)
     with patch.dict(os.environ, {"ENV": "local", "TESTING": "true"}):
         assert is_local_environment() is False

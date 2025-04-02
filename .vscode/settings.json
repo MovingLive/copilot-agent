@@ -1,23 +1,20 @@
 {
-  "[jsonc]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
   "[markdown]": {
     "editor.defaultFormatter": "DavidAnson.vscode-markdownlint"
   },
+  "editor.defaultFormatter": "charliermarsh.ruff",
+  "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
     "source.fixAll": "always",
-    "source.fixAll.ruff": "explicit",
     "source.organizeImports": "always",
     "source.removeUnusedImports": "always"
   },
-  "editor.defaultFormatter": "charliermarsh.ruff",
-  "editor.formatOnPaste": true,
-  "editor.formatOnSave": true,
-  "editor.formatOnType": true,
   "files.exclude": {
     "**/__pycache__": true,
-    "**/.pytest_cache": true
+    "**/.DS_Store": true,
+    "**/.git": true,
+    "**/.pytest_cache": true,
+    "**/Thumbs.db": true
   },
   "github.copilot.chat.codeGeneration.useInstructionFiles": true,
   "github.copilot.chat.generateTests.codeLens": true,
@@ -30,20 +27,17 @@
   "githubPullRequests.experimental.notificationsView": true,
   "python.testing.autoTestDiscoverOnSaveEnabled": true,
   "python.testing.cwd": "${workspaceFolder}",
-  "python.testing.pytestArgs": [
-    "tests"
-  ],
   "python.testing.pytestEnabled": true,
   "python.testing.pytestPath": "pytest",
   "python.testing.unittestEnabled": false,
-  "sonarlint.connectedMode.project": {
-    "connectionId": "BNCSonarQube",
-    "projectKey": "APP-kpiswe-hub"
-  },
   "terminal.integrated.env.osx": {
     "PYTHONDONTWRITEBYTECODE": "1"
   },
-  "terminal.integrated.minimumContrastRatio": 1,
+  "i18n-ally.keysInUse": ["date.long.*", "yeah"],
+  "i18n-ally.keystyle": "nested",
+  "i18n-ally.localesPaths": ["frontend/src/locales"],
+  "i18n-ally.regex.key": ".*?",
+  "i18n-ally.sourceLanguage": "en",
   "workbench.editor.enablePreview": false,
-  "ruff.configuration": "${workspaceFolder}/ruff.toml"
+  "workbench.editor.enablePreviewFromQuickOpen": false
 }

@@ -91,24 +91,6 @@ class MockStream:
     async def __aexit__(self, *args):
         pass
 
-# Tests pour get_github_user
-@pytest.mark.asyncio
-async def test_get_github_user_success(monkeypatch):
-    """Test la récupération réussie des informations utilisateur."""
-    response = MockResponse(200, {"login": "testuser"})
-    monkeypatch.setattr(httpx, "AsyncClient", lambda: MockStreamingClient(response))
-    login = await copilot_service.get_github_user("fake_token")
-    assert login == "testuser"
-
-@pytest.mark.asyncio
-async def test_get_github_user_failure(monkeypatch):
-    """Test l'échec de récupération des informations utilisateur."""
-    response = MockResponse(401, {"message": "Bad credentials"})
-    monkeypatch.setattr(httpx, "AsyncClient", lambda: MockStreamingClient(response))
-    with pytest.raises(HTTPException) as exc_info:
-        await copilot_service.get_github_user("fake_token")
-    assert exc_info.value.status_code == 401
-
 # Test pour format_copilot_messages
 def test_format_copilot_messages():
     """Test du formatage des messages pour l'API Copilot."""
@@ -124,12 +106,11 @@ def test_format_copilot_messages():
             "metadata": {"source": "doc2.md", "title": "Test 2"}
         }
     ]
-    messages = copilot_service.format_copilot_messages("Hello", test_docs, "user123")
-    
+    messages = copilot_service.format_copilot_messages("Hello", test_docs)
+
     assert isinstance(messages, list)
-    assert len(messages) == 5  # 4 system messages + 1 user message
+    assert len(messages) == 4  # 3 system messages + 1 user message
     assert messages[-1] == {"role": "user", "content": "Hello"}
-    assert any("user123" in msg["content"] for msg in messages)
     assert any("Test content" in msg["content"] for msg in messages)
 
 # Tests pour call_copilot_api

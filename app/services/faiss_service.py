@@ -346,7 +346,7 @@ def _process_search_results(
 
 
 def retrieve_similar_documents(
-    query: str, k: int = 5, precision_priority: bool = False, use_cache: bool = True
+    query: str, k: int = 30, precision_priority: bool = False, use_cache: bool = True
 ) -> list[dict[str, Any]]:
     """Recherche les documents les plus similaires à la requête.
 

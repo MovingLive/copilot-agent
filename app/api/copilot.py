@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.services.copilot_service import (
     format_copilot_messages,
     generate_streaming_response,
-    get_github_user,
 )
 from app.services.faiss_service import retrieve_similar_documents
 from app.utils.translation_utils import (
@@ -33,9 +32,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
     data = await request.json()
     messages = data.get("messages", [])
     if not messages:
-        raise HTTPException(
-            status_code=400, detail="Messages manquants dans la requête"
-        )
+        raise HTTPException(status_code=400, detail="Messages manquants dans la requête")
 
     # Extraction de la dernière question
     query = messages[-1].get("content", "")
@@ -64,9 +61,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
 
     # Traduction du contexte additionnel si présent et nécessaire
     translated_additional_context = additional_context
-    if additional_context and needs_translation(
-        additional_context, settings.FAISS_LANG
-    ):
+    if additional_context and needs_translation(additional_context, settings.FAISS_LANG):
         translated_additional_context = translate_text(
             additional_context, tgt_lang=settings.FAISS_LANG
         )
@@ -83,11 +78,8 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
     if not docs:
         logger.warning("Aucun document similaire trouvé pour la requête")
 
-    # Récupération des informations de l'utilisateur
-    user_login = await get_github_user(auth_token)
-
     # Préparation des messages pour Copilot (avec la question originale, non traduite)
-    formatted_messages = format_copilot_messages(query, docs, user_login)
+    formatted_messages = format_copilot_messages(query, docs)
     data["messages"] = formatted_messages
 
     # Génération de la réponse en streaming
