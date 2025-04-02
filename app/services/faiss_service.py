@@ -64,9 +64,7 @@ _state = FAISSState()
 
 def _get_local_path(filename: str) -> str:
     """Construit le chemin local pour un fichier."""
-    base_dir = (
-        settings.LOCAL_OUTPUT_DIR if is_local_environment() else tempfile.mkdtemp()
-    )
+    base_dir = settings.LOCAL_OUTPUT_DIR if is_local_environment() else tempfile.mkdtemp()
     return str(Path(base_dir) / filename)
 
 
@@ -96,9 +94,7 @@ def create_optimized_index(dimension: int, vector_count: int) -> faiss.Index:
     # Déterminer le meilleur type d'index en fonction de la taille des données
     if vector_count < 10000:
         # Pour petits ensembles: recherche exacte
-        logger.info(
-            f"Création d'un index exact (IndexFlatL2) pour {vector_count} vecteurs"
-        )
+        logger.info(f"Création d'un index exact (IndexFlatL2) pour {vector_count} vecteurs")
         return faiss.IndexFlatL2(dimension)
     elif vector_count < 100000:
         # Pour ensembles moyens: IVF avec clusters
@@ -173,8 +169,11 @@ def load_index() -> tuple[faiss.Index | None, dict[str, Any]]:
         return None, {}
 
 
-async def update_periodically() -> None:
+async def update_periodically(should_stop=None) -> None:
     """Met à jour l'index FAISS périodiquement.
+
+    Args:
+        should_stop: Optional asyncio.Event pour arrêter la boucle de mise à jour
 
     Cette fonction est conçue pour être exécutée dans un thread séparé.
     """
@@ -187,6 +186,12 @@ async def update_periodically() -> None:
             logger.info("Mise à jour de l'index FAISS terminée")
         except (FAISSServiceError, OSError, json.JSONDecodeError) as e:
             logger.error("Erreur lors de la mise à jour périodique: %s", e)
+
+        # Vérifie si on doit arrêter la boucle
+        if should_stop and should_stop.is_set():
+            logger.info("Arrêt de la boucle de mise à jour périodique")
+            break
+
         await asyncio.sleep(UPDATE_INTERVAL)
 
 
@@ -227,9 +232,7 @@ def _prepare_query_vector(query_vector: np.ndarray) -> np.ndarray:
     return query_vector
 
 
-def configure_search_parameters(
-    k: int, precision_priority: bool = False
-) -> dict[str, Any]:
+def configure_search_parameters(k: int, precision_priority: bool = False) -> dict[str, Any]:
     """Configure les paramètres de recherche FAISS optimaux.
 
     Args:
@@ -364,9 +367,7 @@ def retrieve_similar_documents(
         cache = get_cache_instance()
         cached_results = cache.get_search_results(query)
         if cached_results is not None:
-            logger.info(
-                "Résultats trouvés dans le cache pour la requête: %s", query[:30]
-            )
+            logger.info("Résultats trouvés dans le cache pour la requête: %s", query[:30])
             return cached_results
 
     if _state.index is None:
@@ -399,9 +400,7 @@ def retrieve_similar_documents(
         return []
 
 
-def save_faiss_index(
-    index: faiss.Index, metadata_mapping: dict, directory: str
-) -> None:
+def save_faiss_index(index: faiss.Index, metadata_mapping: dict, directory: str) -> None:
     """Sauvegarde l'index FAISS et le mapping des IDs dans le répertoire spécifié.
 
     Args:

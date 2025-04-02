@@ -167,8 +167,13 @@ def read_code_file(file_path: str) -> str:
             with open(file_path, encoding="latin-1") as f:
                 return f.read()
         except Exception as e:
-            logger.warning("Impossible de lire le fichier %s: %s", file_path, e)
+            logger.warning(
+                "Impossible de lire le fichier %s avec l'encodage latin-1: %s", file_path, e
+            )
             return ""
+    except Exception as e:
+        logger.warning("Impossible de lire le fichier %s: %s", file_path, e)
+        return ""
 
 
 def read_relevant_files(directory: str) -> list[tuple[str, str]]:

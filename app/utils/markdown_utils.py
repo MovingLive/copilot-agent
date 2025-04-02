@@ -46,7 +46,16 @@ def analyze_markdown_structure(text: str) -> list[dict[str, str]]:
     """
     sections = []
     lines = text.split("\n")
-    current_title = "Introduction"
+
+    # Si le texte est court et contient un seul titre, le traiter comme une seule section
+    if len(lines) <= 2 and any(line.startswith("#") for line in lines):
+        return [{
+            "title": "",
+            "level": 0,
+            "content": text
+        }]
+
+    current_title = None
     current_content = []
 
     for line in lines:
@@ -56,13 +65,11 @@ def analyze_markdown_structure(text: str) -> list[dict[str, str]]:
         if title_match:
             # Sauvegarder la section précédente
             if current_content:
-                sections.append(
-                    {
-                        "title": current_title,
-                        "level": current_title.count("#"),
-                        "content": "\n".join(current_content),
-                    }
-                )
+                sections.append({
+                    "title": current_title or "",
+                    "level": current_title.count("#") if current_title else 0,
+                    "content": "\n".join(current_content),
+                })
 
             # Nouvelle section
             current_title = line
@@ -72,13 +79,19 @@ def analyze_markdown_structure(text: str) -> list[dict[str, str]]:
 
     # Ajouter la dernière section
     if current_content:
-        sections.append(
-            {
-                "title": current_title,
-                "level": current_title.count("#") if "#" in current_title else 0,
-                "content": "\n".join(current_content),
-            }
-        )
+        sections.append({
+            "title": current_title or "",
+            "level": current_title.count("#") if current_title else 0,
+            "content": "\n".join(current_content),
+        })
+
+    # Si aucune section n'a été trouvée, retourner le texte complet comme une section
+    if not sections:
+        return [{
+            "title": "",
+            "level": 0,
+            "content": text,
+        }]
 
     return sections
 
@@ -185,8 +198,23 @@ def segment_text(text: str, max_length: int = 500) -> list[str]:
     Returns:
         list: Liste des segments de texte
     """
+    logger.debug("Entrée segment_text: '%s'", text)
+    
+    if not text.strip():
+        return []
+
+    # Pour les textes courts sans titre, retourner directement le texte
+    if len(text) <= max_length and "#" not in text:
+        logger.debug("Texte court sans titre, retour direct: '%s'", text)
+        return [text]
+
     # Analyser la structure du document
     document_structure = analyze_markdown_structure(text)
+    logger.debug("Structure du document: %s", document_structure)
+
+    # Si le document n'a pas de structure avec des titres, segmenter directement
+    if len(document_structure) == 1 and not document_structure[0]["title"]:
+        return [text] if len(text) <= max_length else segment_by_semantic_units(text, max_length, overlap=50)
 
     # Segmenter en respectant les limites naturelles du document
     segments = []
@@ -198,8 +226,13 @@ def segment_text(text: str, max_length: int = 500) -> list[str]:
             overlap=50,  # Chevauchement de 50 caractères entre segments
         )
 
-        # Ajouter le titre de la section au début de chaque segment
-        segments.extend([f"{section['title']}\n\n{s}" for s in section_segments])
+        # Ajouter le titre de la section uniquement s'il existe
+        if section["title"]:
+            segments.extend([f"{section['title']}\n\n{s}" for s in section_segments])
+        else:
+            segments.extend(section_segments)
 
     # Dédupliquer les segments trop similaires
-    return remove_redundant_segments(segments, similarity_threshold=0.85)
+    final_segments = remove_redundant_segments(segments, similarity_threshold=0.85)
+    logger.debug("Segments finaux: %s", final_segments)
+    return final_segments
