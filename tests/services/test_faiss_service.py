@@ -193,21 +193,21 @@ async def test_update_periodically():
     mock_load = MagicMock(return_value=(FakeFaissIndex(384), {"0": {"content": "test"}}))
     mock_sleep = AsyncMock()
     stop_event = asyncio.Event()
-    
+
     with (
         patch('app.services.faiss_service.load_index', mock_load),
         patch('asyncio.sleep', mock_sleep)
     ):
         # Démarrer la tâche de mise à jour
         task = asyncio.create_task(faiss_service.update_periodically(stop_event))
-        
+
         # Attendre un peu pour laisser la tâche s'exécuter
         await asyncio.sleep(0.1)
-        
+
         # Arrêter la tâche
         stop_event.set()
         await task
-        
+
         # Vérifications
         mock_load.assert_called_once()
         mock_sleep.assert_called_once()
@@ -218,21 +218,21 @@ async def test_update_periodically_error():
     mock_load = MagicMock(side_effect=FAISSLoadError("Test error"))
     mock_sleep = AsyncMock()
     stop_event = asyncio.Event()
-    
+
     with (
         patch('app.services.faiss_service.load_index', mock_load),
         patch('asyncio.sleep', mock_sleep)
     ):
         # Démarrer la tâche de mise à jour
         task = asyncio.create_task(faiss_service.update_periodically(stop_event))
-        
+
         # Attendre un peu pour laisser la tâche s'exécuter
         await asyncio.sleep(0.1)
-        
+
         # Arrêter la tâche
         stop_event.set()
         await task
-        
+
         # Vérifications
         mock_load.assert_called_once()
         mock_sleep.assert_called_once()
