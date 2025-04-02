@@ -38,12 +38,12 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.black]
-line-length = 88
+line-length = 92
 include = '\.pyi?$'
 
 [tool.ruff]
 # Règle: formatage cohérent
-line-length = 88
+line-length = 92
 target-version = "py310"
 exclude = [
     ".bzr",
@@ -92,11 +92,11 @@ ignore = [
     "D212",  # Multi-line docstring summary should start at the first line
 ]
 fixable = ["ALL"]
-unfixable = []
+unfixable = ["E712"]
 
 [tool.ruff.lint.pydocstyle]
 # Règle: style de documentation
-convention = "google"
+convention = "pep257"
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D", "E501"]
