@@ -173,8 +173,11 @@ def load_index() -> tuple[faiss.Index | None, dict[str, Any]]:
         return None, {}
 
 
-async def update_periodically() -> None:
+async def update_periodically(should_stop=None) -> None:
     """Met à jour l'index FAISS périodiquement.
+
+    Args:
+        should_stop: Optional asyncio.Event pour arrêter la boucle de mise à jour
 
     Cette fonction est conçue pour être exécutée dans un thread séparé.
     """
@@ -187,6 +190,12 @@ async def update_periodically() -> None:
             logger.info("Mise à jour de l'index FAISS terminée")
         except (FAISSServiceError, OSError, json.JSONDecodeError) as e:
             logger.error("Erreur lors de la mise à jour périodique: %s", e)
+            
+        # Vérifie si on doit arrêter la boucle
+        if should_stop and should_stop.is_set():
+            logger.info("Arrêt de la boucle de mise à jour périodique")
+            break
+            
         await asyncio.sleep(UPDATE_INTERVAL)
 
 
