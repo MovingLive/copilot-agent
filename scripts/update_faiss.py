@@ -105,7 +105,7 @@ def get_repo_urls() -> list[str]:
                 if url.strip()
             ]
     except json.JSONDecodeError:
-        logger.error("Format REPO_URLS invalide")
+        logging.error("Format REPO_URLS invalide")
         return []
 
     if not repo_urls:

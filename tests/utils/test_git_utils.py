@@ -164,7 +164,7 @@ def test_clone_multiple_repos_success() -> None:
         "https://github.com/test/repo1.git",
         "https://github.com/test/repo2.git",
     ]
-    
+
     with (
         patch('tempfile.mkdtemp', return_value="/tmp/test_repos"),
         patch('app.utils.git_utils.clone_or_update_repo') as mock_clone
@@ -174,12 +174,12 @@ def test_clone_multiple_repos_success() -> None:
             "/tmp/test_repos/repo1",
             "/tmp/test_repos/repo2"
         ]
-        
+
         result = clone_multiple_repos(repo_urls)
-        
+
         assert len(result) == 2
         assert result == ["/tmp/test_repos/repo1", "/tmp/test_repos/repo2"]
-        
+
         # Vérifie que clone_or_update_repo a été appelé pour chaque URL
         expected_calls = [
             call(repo_urls[0], "/tmp/test_repos/repo1"),
@@ -194,7 +194,7 @@ def test_clone_multiple_repos_with_error() -> None:
         "https://github.com/test/invalid-repo.git",
         "https://github.com/test/repo3.git"
     ]
-    
+
     with (
         patch('tempfile.mkdtemp', return_value="/tmp/test_repos"),
         patch('app.utils.git_utils.clone_or_update_repo') as mock_clone,
@@ -206,12 +206,12 @@ def test_clone_multiple_repos_with_error() -> None:
             Exception("Erreur de clonage"),
             "/tmp/test_repos/repo3"
         ]
-        
+
         result = clone_multiple_repos(repo_urls)
-        
+
         assert len(result) == 2  # Seuls les clonages réussis sont retournés
         assert result == ["/tmp/test_repos/repo1", "/tmp/test_repos/repo3"]
-        
+
         # Vérifie que l'erreur a été journalisée
         mock_logger.error.assert_called_once()
         error_message = mock_logger.error.call_args[0][0]
@@ -229,7 +229,7 @@ def test_clone_multiple_repos_with_non_git_urls() -> None:
         "https://github.com/test/repo1",  # Sans .git
         "https://example.com/repo2",      # Non GitHub
     ]
-    
+
     with (
         patch('tempfile.mkdtemp', return_value="/tmp/test_repos"),
         patch('app.utils.git_utils.clone_or_update_repo') as mock_clone
@@ -238,9 +238,9 @@ def test_clone_multiple_repos_with_non_git_urls() -> None:
             "/tmp/test_repos/repo_0",
             "/tmp/test_repos/repo_1"
         ]
-        
+
         result = clone_multiple_repos(repo_urls)
-        
+
         assert len(result) == 2
         # Vérifie que les noms de dossiers par défaut sont utilisés
         expected_calls = [
