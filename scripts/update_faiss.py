@@ -109,7 +109,7 @@ def get_repo_urls() -> list[str]:
         return []
 
     if not repo_urls:
-        logger.error("Aucun dépôt spécifié dans REPO_URLS")
+        logging.error("Aucun dépôt spécifié dans REPO_URLS")
         return []
 
     return repo_urls
