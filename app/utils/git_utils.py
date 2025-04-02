@@ -45,6 +45,37 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
     return _clone_or_pull_repo(repo_url, repo_dir_path)
 
 
+def clone_multiple_repos(repo_urls: list[str]) -> list[str]:
+    """Clone ou met à jour plusieurs dépôts GitHub.
+
+    Args:
+        repo_urls: Liste des URLs des dépôts GitHub
+
+    Returns:
+        List[str]: Liste des chemins des répertoires contenant les dépôts clonés
+    """
+    temp_base_dir = tempfile.mkdtemp(prefix="faiss_repos_")
+    cloned_dirs = []
+
+    for idx, repo_url in enumerate(repo_urls):
+        repo_name = (
+            repo_url.split("/")[-1].replace(".git", "")
+            if ".git" in repo_url
+            else f"repo_{idx}"
+        )
+        repo_dir = os.path.join(temp_base_dir, repo_name)
+
+        # Cloner ou mettre à jour le dépôt
+        try:
+            cloned_dir = clone_or_update_repo(repo_url, repo_dir)
+            cloned_dirs.append(cloned_dir)
+            logger.info("Dépôt %s cloné avec succès dans %s", repo_url, cloned_dir)
+        except Exception as e:
+            logger.error("Erreur lors du clonage du dépôt %s: %s", repo_url, e)
+
+    return cloned_dirs
+
+
 def _handle_parent_directory(parent_dir: str, configured_dir: str) -> str:
     """Gère la création du répertoire parent."""
     try:
@@ -56,9 +87,7 @@ def _handle_parent_directory(parent_dir: str, configured_dir: str) -> str:
                 "Système de fichiers en lecture seule détecté pour %s", parent_dir
             )
         else:
-            logger.warning(
-                "Impossible de créer le répertoire parent %s: %s", parent_dir, e
-            )
+            logger.warning("Impossible de créer le répertoire parent %s: %s", parent_dir, e)
         return _create_temp_directory()
 
 

@@ -41,19 +41,14 @@ class Settings(BaseModel):
     TEMP_FAISS_DIR: str = os.getenv(
         "TEMP_FAISS_DIR",
         os.path.join(
-            os.path.dirname(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            ),
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
             "temp",
             "faiss_index",
         ),
     )
 
     # Configuration GitHub
-    REPO_URL: str = os.getenv(
-        "REPO_URL", "https://github.com/votre_utilisateur/votre_repo.git"
-    )
-    REPO_DIR: str = os.getenv("REPO_DIR", "documentation_repo")
+    REPO_URLS: str = os.getenv("REPO_URLS", "[]")  # Format: ["url1", "url2"] ou url1,url2
     GITHUB_PAT: str = os.getenv("GITHUB_PAT", "")
     GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
     GITHUB_APP_PRIVATE_KEY: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
@@ -87,6 +82,7 @@ class Settings(BaseModel):
     # Configuration de logging
     LOG_FORMAT: str = "%(asctime)s [%(levelname)s] %(message)s"
     FAISS_LANG: str = os.getenv("FAISS_LANG", "en")
+
 
 # Instance singleton des configurations
 settings = Settings()

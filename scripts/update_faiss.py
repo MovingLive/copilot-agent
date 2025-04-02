@@ -1,18 +1,15 @@
 """Fichier : update_faiss.py.
 
 Ce script réalise les opérations suivantes :
-1. Cloner ou mettre à jour un dépôt GitHub contenant la documentation Markdown.
-2. Lire et segmenter les fichiers Markdown en morceaux de taille raisonnable.
-3. Générer des embeddings pour chaque segment à l'aide du modèle "all-MiniLM-L6-v2" de SentenceTransformers.
-4. Indexer ces embeddings dans un index FAISS et sauvegarder l'index ainsi qu'un mapping des IDs aux métadonnées.
-5. Synchroniser le dossier contenant l'index FAISS vers un bucket AWS S3 ou un répertoire local.
-
-Dépendances :
-    - git (disponible en ligne de commande)
-    - Python 3
-    - poetry add sentence-transformers faiss-cpu boto3
+1. Cloner ou mettre à jour plusieurs dépôts GitHub contenant de la documentation et du code source.
+2. Lire et segmenter les fichiers en morceaux de taille raisonnable.
+3. Filtrer les fichiers non pertinents (images, binaires, etc.).
+4. Générer des embeddings pour chaque segment à l'aide du modèle "all-MiniLM-L6-v2".
+5. Indexer ces embeddings dans un index FAISS.
+6. Synchroniser le dossier contenant l'index FAISS vers un bucket AWS S3 ou un répertoire local.
 """
 
+import json
 import logging
 import os
 import sys
@@ -23,38 +20,28 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules de app
-sys.path.append(
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-)
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+# Import le plus tôt possible pour la configuration
 from app.core.config import settings
+
+# Autres imports après la configuration
 from app.services.embedding_service import EXPECTED_DIMENSION
 from app.services.faiss_service import save_faiss_index
-from app.utils import (
-    clone_or_update_repo,
-    export_data,
-    process_documents_for_faiss,
-    read_markdown_files,
-)
+from app.utils.document_utils import read_relevant_files
+from app.utils.export_utils import export_data, is_local_environment
+from app.utils.git_utils import clone_multiple_repos
+from app.utils.vector_db_utils import process_files_for_faiss
 
 # --- Chargement des variables d'environnement ---
 load_dotenv()
-
 
 # --- Configuration du logging ---
 logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
 
 
 def load_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
-    """Charge le modèle d'embedding SentenceTransformer.
-
-    Cette fonction est séparée pour faciliter le mocking pendant les tests.
-
-    Args:
-        model_name: Nom du modèle à charger
-
-    Returns:
-        Instance de SentenceTransformer
-    """
+    """Charge le modèle d'embedding SentenceTransformer."""
     logging.info("Chargement du modèle d'embedding '%s'...", model_name)
     return SentenceTransformer(model_name)
 
@@ -62,26 +49,13 @@ def load_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransf
 def create_faiss_index(
     processed_docs: list, embedding_model: SentenceTransformer
 ) -> tuple[faiss.IndexIDMap, dict]:
-    """Génère les embeddings pour chaque segment, crée un index FAISS et renvoie l'index ainsi que
-    le mapping des IDs aux métadonnées.
-
-    Args:
-        processed_docs: Liste des documents traités avec numeric_id, text et metadata
-        embedding_model: Modèle SentenceTransformer pour générer les embeddings
-
-    Returns:
-        tuple: (Index FAISS, Mapping des IDs vers les métadonnées)
-
-    Raises:
-        ValueError: Si la liste de documents est vide ou invalide
-    """
+    """Génère les embeddings et crée un index FAISS."""
     if not processed_docs:
         raise ValueError("La liste de documents est vide")
 
     try:
         texts = [doc["text"] for doc in processed_docs]
         numeric_ids = [doc["numeric_id"] for doc in processed_docs]
-        # Convertir les IDs en str dès la création du mapping
         metadata_mapping = {
             str(doc["numeric_id"]): doc["metadata"] for doc in processed_docs
         }
@@ -98,67 +72,96 @@ def create_faiss_index(
     if embeddings.size == 0:
         raise ValueError("Aucun embedding n'a été généré")
 
-    # Utilisation de la dimension du modèle ou 384 par défaut (comme dans embedding_service.py)
     dimension = embeddings.shape[1] if len(embeddings.shape) > 1 else EXPECTED_DIMENSION
     logging.info("Dimension des embeddings: %d", dimension)
 
     # Création de l'index FAISS
     index = faiss.IndexFlatL2(dimension)
-    # Envelopper avec un IndexIDMap pour associer nos identifiants numériques
     index_id_map = faiss.IndexIDMap(index)
-    # Conversion en numpy arrays et ajout à l'index
     np_embeddings = np.array(embeddings).astype("float32")
     np_ids = np.array(numeric_ids, dtype=np.int64)
 
-    # S'assurer que les embeddings sont en 2D
     if len(np_embeddings.shape) == 1:
         np_embeddings = np_embeddings.reshape(1, -1)
-        np_ids = np_ids.reshape(-1)  # S'assurer que les IDs sont en 1D
+        np_ids = np_ids.reshape(-1)
 
-    # pylint: disable=E1120
     index_id_map.add_with_ids(np_embeddings, np_ids)
     logging.info("Index FAISS créé et rempli.")
 
     return index_id_map, metadata_mapping
 
 
+def get_repo_urls() -> list[str]:
+    """Récupère les URLs des dépôts depuis la variable d'environnement REPO_URLS."""
+    repo_urls_env = os.getenv("REPO_URLS", "[]")
+
+    try:
+        if repo_urls_env.startswith("[") and repo_urls_env.endswith("]"):
+            repo_urls = json.loads(repo_urls_env)
+        else:
+            repo_urls = [
+                url.strip()
+                for url in repo_urls_env.replace(";", ",").split(",")
+                if url.strip()
+            ]
+    except json.JSONDecodeError:
+        logger.error("Format REPO_URLS invalide")
+        return []
+
+    if not repo_urls:
+        logger.error("Aucun dépôt spécifié dans REPO_URLS")
+        return []
+
+    return repo_urls
+
+
 def main() -> None:
     """Main function to orchestrate the FAISS index creation and upload process."""
     logging.info("Démarrage du script de mise à jour de l'index FAISS...")
 
-    # Étape 1 : Cloner ou mettre à jour le dépôt GitHub
-    repo_dir = clone_or_update_repo(settings.REPO_URL, settings.REPO_DIR)
+    # Récupérer les URLs des dépôts
+    repo_urls = get_repo_urls()
 
-    # Étape 2 : Lire et traiter les fichiers Markdown
-    documents = read_markdown_files(repo_dir)
-    processed_docs = process_documents_for_faiss(documents, settings.SEGMENT_MAX_LENGTH)
+    if not repo_urls:
+        logging.error("Aucun dépôt GitHub spécifié dans REPO_URLS ou REPO_URL")
+        sys.exit(1)
 
-    # Étape 3 : Charger le modèle d'embedding (maintenant via la fonction séparée)
+    # Étape 1 : Cloner ou mettre à jour les dépôts GitHub
+    repo_dirs = clone_multiple_repos(repo_urls)
+
+    if not repo_dirs:
+        logging.error("Aucun dépôt n'a pu être cloné, arrêt du script")
+        sys.exit(1)
+
+    # Étape 2 : Lire et traiter les fichiers pertinents de tous les dépôts
+    all_documents = []
+    for repo_dir in repo_dirs:
+        documents = read_relevant_files(repo_dir)
+        all_documents.extend(documents)
+
+    if not all_documents:
+        raise ValueError("La liste de documents est vide")
+
+    # Étape 3 : Traiter les documents pour FAISS
+    processed_docs = process_files_for_faiss(all_documents, settings.SEGMENT_MAX_LENGTH)
+
+    # Étape 4 : Charger le modèle d'embedding
     model = load_embedding_model()
 
-    # Étape 4 : Générer l'index FAISS et le mapping des métadonnées
+    # Étape 5 : Générer l'index FAISS et le mapping des métadonnées
     index, metadata_mapping = create_faiss_index(processed_docs, model)
 
-    # Étape 5 : Sauvegarder l'index FAISS et le mapping
-    # En environnement local, save_faiss_index sauvegarde directement dans LOCAL_OUTPUT_DIR
-    # En environnement non-local, la sauvegarde se fait dans TEMP_FAISS_DIR
+    # Étape 6 : Sauvegarder l'index FAISS et le mapping
     save_faiss_index(index, metadata_mapping, settings.TEMP_FAISS_DIR)
 
-    # Étape 6 : Exporter les données vers S3 (uniquement en environnement non-local)
-    # En environnement local, pas besoin d'exporter car déjà sauvegardé au bon endroit
-    # Mais pendant les tests, on doit toujours exporter pour que les tests passent
-    from app.utils.export_utils import is_local_environment
-
+    # Étape 7 : Exporter les données
     is_test_mode = "pytest" in sys.modules
-
     if not is_local_environment() or is_test_mode:
         logging.info("Exportation des données...")
         export_data(settings.TEMP_FAISS_DIR, settings.S3_BUCKET_PREFIX)
         logging.info("Exportation terminée.")
     else:
-        logging.info(
-            "Environnement local détecté, pas besoin d'exportation supplémentaire."
-        )
+        logging.info("Environnement local détecté, pas d'exportation supplémentaire.")
 
 
 if __name__ == "__main__":
