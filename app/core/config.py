@@ -48,7 +48,9 @@ class Settings(BaseModel):
     )
 
     # Configuration GitHub
-    REPO_URLS: str = os.getenv("REPO_URLS", "[]")  # Format: ["url1", "url2"] ou url1,url2
+    REPO_URLS: str = os.getenv(
+        "REPO_URLS", "[]"
+    )  # Format: ["owner/repo1", "owner/repo2"] ou owner/repo1,owner/repo2
     GITHUB_PAT: str = os.getenv("GITHUB_PAT", "")
     GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
     GITHUB_APP_PRIVATE_KEY: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")

@@ -1,12 +1,12 @@
 """Fichier : update_faiss.py.
 
 Ce script réalise les opérations suivantes :
-1. Cloner ou mettre à jour plusieurs dépôts GitHub contenant de la documentation et du code source.
-2. Lire et segmenter les fichiers en morceaux de taille raisonnable.
-3. Filtrer les fichiers non pertinents (images, binaires, etc.).
-4. Générer des embeddings pour chaque segment à l'aide du modèle "all-MiniLM-L6-v2".
-5. Indexer ces embeddings dans un index FAISS.
-6. Synchroniser le dossier contenant l'index FAISS vers un bucket AWS S3 ou un répertoire local.
+1. Lire le contenu des repositories GitHub via l'API
+2. Segmenter les fichiers en morceaux de taille raisonnable
+3. Filtrer les fichiers non pertinents (images, binaires, etc.)
+4. Générer des embeddings pour chaque segment à l'aide du modèle "all-MiniLM-L6-v2"
+5. Indexer ces embeddings dans un index FAISS
+6. Synchroniser le dossier contenant l'index FAISS vers un bucket AWS S3 ou un répertoire local
 """
 
 import json
@@ -28,9 +28,8 @@ from app.core.config import settings
 # Autres imports après la configuration
 from app.services.embedding_service import EXPECTED_DIMENSION
 from app.services.faiss_service import save_faiss_index
-from app.utils.document_utils import read_relevant_files
 from app.utils.export_utils import export_data, is_local_environment
-from app.utils.git_utils import clone_multiple_repos
+from app.utils.git_utils import read_repository_content
 from app.utils.vector_db_utils import process_files_for_faiss
 
 # --- Chargement des variables d'environnement ---
@@ -91,78 +90,85 @@ def create_faiss_index(
     return index_id_map, metadata_mapping
 
 
-def get_repo_urls() -> list[str]:
-    """Récupère les URLs des dépôts depuis la variable d'environnement REPO_URLS."""
-    repo_urls_env = os.getenv("REPO_URLS", "[]")
+def get_repo_list() -> list[str]:
+    """Récupère la liste des repositories depuis la variable d'environnement REPO_URLS."""
+    repo_urls_env = settings.REPO_URLS
 
     try:
         if repo_urls_env.startswith("[") and repo_urls_env.endswith("]"):
-            repo_urls = json.loads(repo_urls_env)
+            repos = json.loads(repo_urls_env)
         else:
-            repo_urls = [
-                url.strip()
-                for url in repo_urls_env.replace(";", ",").split(",")
-                if url.strip()
+            repos = [
+                repo.strip()
+                for repo in repo_urls_env.replace(";", ",").split(",")
+                if repo.strip()
             ]
     except json.JSONDecodeError:
         logging.error("Format REPO_URLS invalide")
         return []
 
-    if not repo_urls:
-        logging.error("Aucun dépôt spécifié dans REPO_URLS")
+    if not repos:
+        logging.error("Aucun repository spécifié dans REPO_URLS")
         return []
 
-    return repo_urls
+    # Valider le format owner/repo
+    valid_repos = []
+    for repo in repos:
+        if "/" in repo and len(repo.split("/")) == 2:
+            valid_repos.append(repo)
+        else:
+            logging.warning(
+                "Format de repository invalide '%s'. Utiliser le format 'owner/repo'", repo
+            )
+
+    return valid_repos
 
 
 def main() -> None:
     """Main function to orchestrate the FAISS index creation and upload process."""
     logging.info("Démarrage du script de mise à jour de l'index FAISS...")
 
-    # Récupérer les URLs des dépôts
-    repo_urls = get_repo_urls()
+    # Récupérer la liste des repositories
+    repos = get_repo_list()
 
-    if not repo_urls:
-        logging.error("Aucun dépôt GitHub spécifié dans REPO_URLS ou REPO_URL")
+    if not repos:
+        logging.error("Aucun repository GitHub valide spécifié dans REPO_URLS")
         sys.exit(1)
 
-    # Étape 1 : Cloner ou mettre à jour les dépôts GitHub
-    repo_dirs = clone_multiple_repos(repo_urls)
-
-    if not repo_dirs:
-        logging.error("Aucun dépôt n'a pu être cloné, arrêt du script")
-        sys.exit(1)
-
-    # Étape 2 : Lire et traiter les fichiers pertinents de tous les dépôts
+    # Étape 1 : Lire le contenu des repositories via l'API GitHub
     all_documents = []
-    for repo_dir in repo_dirs:
-        documents = read_relevant_files(repo_dir)
-        all_documents.extend(documents)
+    for repo in repos:
+        documents = read_repository_content(repo)
+        if documents:
+            logging.info("Repository %s: %d fichiers lus", repo, len(documents))
+            all_documents.extend(documents)
+        else:
+            logging.warning("Aucun fichier lu depuis le repository %s", repo)
 
     if not all_documents:
-        raise ValueError("La liste de documents est vide")
+        raise ValueError("Aucun document n'a été lu depuis les repositories")
 
-    # Étape 3 : Traiter les documents pour FAISS
+    # Étape 2 : Traiter les documents pour FAISS
     processed_docs = process_files_for_faiss(all_documents, settings.SEGMENT_MAX_LENGTH)
 
-    # Étape 4 : Charger le modèle d'embedding
+    # Étape 3 : Charger le modèle d'embedding
     model = load_embedding_model()
 
-    # Étape 5 : Générer l'index FAISS et le mapping des métadonnées
+    # Étape 4 : Générer l'index FAISS et le mapping des métadonnées
     index, metadata_mapping = create_faiss_index(processed_docs, model)
 
-    # Étape 6 : Sauvegarder l'index FAISS et le mapping
+    # Étape 5 : Sauvegarder l'index FAISS et le mapping
     save_faiss_index(index, metadata_mapping, settings.TEMP_FAISS_DIR)
 
-    # Étape 7 : Exporter les données
+    # Étape 6 : Exporter les données
     is_test_mode = "pytest" in sys.modules
     if not is_local_environment() or is_test_mode:
         logging.info("Exportation des données...")
         export_data(settings.TEMP_FAISS_DIR, settings.S3_BUCKET_PREFIX)
-        logging.info("Exportation terminée.")
     else:
         logging.info("Environnement local détecté, pas d'exportation supplémentaire.")
 
+    logging.info("Exportation terminée.")
 
 if __name__ == "__main__":
     main()

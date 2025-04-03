@@ -22,6 +22,7 @@ pyjwt = "^2.10.1"
 sentencepiece = "^0.2.0"
 langid = "^1.1.6"
 deep-translator = "^1.11.4"
+pygithub = "^2.6.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.2"
