@@ -307,13 +307,40 @@ def _search_in_index(
                 )
             else:
                 logger.info("📏 Aucune distance non nulle trouvée.")
-            # Log des 3 premiers indices et distances pour débogage
-            for i, idx in enumerate(valid_indices[:3]):
+            # Log des K premiers indices et distances pour débogage avec aperçu du contenu
+            for i, idx in enumerate(valid_indices[:k]):
+                # Récupérer l'information sur le document si disponible
+                doc_preview = "Contenu non disponible"
+                doc_title = "Sans titre"
+                if str(idx) in _state.document_store:
+                    doc = _state.document_store[str(idx)]
+                    if isinstance(doc, dict):
+                        # Extraire un aperçu du contenu
+                        if "content" in doc and doc["content"]:
+                            content = doc["content"]
+                            doc_preview = (
+                                content[:50] + "..." if len(content) > 50 else content
+                            )
+
+                        # Extraire le titre ou une métadonnée pertinente
+                        if "title" in doc:
+                            doc_title = doc["title"]
+                        elif "file_path" in doc:
+                            doc_title = Path(doc["file_path"]).name
+                        elif "metadata" in doc and isinstance(doc["metadata"], dict):
+                            meta = doc["metadata"]
+                            for key in ["title", "name", "file_name", "path"]:
+                                if key in meta and meta[key]:
+                                    doc_title = meta[key]
+                                    break
+
                 logger.info(
-                    "🏆 Top %d: ID=%d, distance=%.4f",
+                    "🏆 Top %d: ID=%d, distance=%.4f | %s | %s",
                     i + 1,
                     idx,
                     distances[0][indices[0] == idx][0],
+                    doc_title,
+                    doc_preview,
                 )
         return distances, indices
     except RuntimeError as e:
