@@ -1,288 +1,195 @@
-"""Module utilitaire pour la gestion des dépôts Git.
+"""Module utilitaire pour la gestion des dépôts Git via GitHub API.
 
-Contient des fonctions pour cloner et mettre à jour des dépôts Git.
+Contient des fonctions pour lire le contenu des dépôts GitHub via l'API.
 """
 
+import base64
 import logging
 import os
-import re
-import subprocess
-import sys
-import tempfile
+from pathlib import Path
 
-# Errno constant for read-only file system
-EROFS = 30
+from github import Github, GithubException
+from github.Repository import Repository
+
+from app.utils.document_utils import EXCLUDED_EXTENSIONS, INCLUDED_CODE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
 
-def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
-    """Clone ou met à jour le dépôt GitHub contenant la documentation.
-
-    Utilise un répertoire temporaire si le répertoire cible n'est pas accessible en écriture.
-
-    Args:
-        repo_url: URL du dépôt GitHub
-        repo_dir: Dossier local cible pour le clonage/mise à jour
+def get_github_client() -> Github:
+    """Crée un client GitHub authentifié.
 
     Returns:
-        str: Chemin du répertoire contenant le dépôt cloné
-    """
-    # Vérifier si nous sommes en environnement de test et le type de test
-    is_testing = os.getenv("TESTING", "false").lower() == "true"
-    skip_git_calls = os.getenv("SKIP_GIT_CALLS", "false").lower() == "true"
-
-    # Utiliser le répertoire défini ou créer un répertoire temporaire
-    repo_dir_path = _get_writable_directory(repo_dir)
-
-    # Ne pas exécuter les commandes git en mode test si SKIP_GIT_CALLS est activé
-    if is_testing and skip_git_calls:
-        logger.info("Mode test avec simulation du clonage détecté: simulation du dépôt")
-        _create_test_document(repo_dir_path)
-        return repo_dir_path
-
-    # Cloner ou mettre à jour le dépôt
-    return _clone_or_pull_repo(repo_url, repo_dir_path)
-
-
-def clone_multiple_repos(repo_urls: list[str]) -> list[str]:
-    """Clone ou met à jour plusieurs dépôts GitHub.
-
-    Args:
-        repo_urls: Liste des URLs des dépôts GitHub
-
-    Returns:
-        List[str]: Liste des chemins des répertoires contenant les dépôts clonés
-    """
-    temp_base_dir = tempfile.mkdtemp(prefix="faiss_repos_")
-    cloned_dirs = []
-
-    for idx, repo_url in enumerate(repo_urls):
-        repo_name = (
-            repo_url.split("/")[-1].replace(".git", "")
-            if ".git" in repo_url
-            else f"repo_{idx}"
-        )
-        repo_dir = os.path.join(temp_base_dir, repo_name)
-
-        # Cloner ou mettre à jour le dépôt
-        try:
-            cloned_dir = clone_or_update_repo(repo_url, repo_dir)
-            cloned_dirs.append(cloned_dir)
-            logger.info("Dépôt %s cloné avec succès dans %s", repo_url, cloned_dir)
-        except Exception as e:
-            logger.error("Erreur lors du clonage du dépôt %s: %s", repo_url, e)
-
-    return cloned_dirs
-
-
-def _handle_parent_directory(parent_dir: str, configured_dir: str) -> str:
-    """Gère la création du répertoire parent."""
-    try:
-        os.makedirs(parent_dir, exist_ok=True)
-        return configured_dir
-    except OSError as e:
-        if e.errno == EROFS:  # Read-only file system
-            logger.warning(
-                "Système de fichiers en lecture seule détecté pour %s", parent_dir
-            )
-        else:
-            logger.warning("Impossible de créer le répertoire parent %s: %s", parent_dir, e)
-        return _create_temp_directory()
-
-
-def _get_writable_directory(target_dir: str) -> str:
-    """Trouve un répertoire accessible en écriture."""
-    try:
-        configured_dir = os.path.abspath(target_dir)
-        parent_dir = os.path.dirname(configured_dir)
-
-        if not os.path.exists(parent_dir):
-            return _handle_parent_directory(parent_dir, configured_dir)
-
-        return _handle_configured_directory(configured_dir)
-
-    except OSError as e:
-        logger.warning("Erreur lors de la vérification des permissions: %s", e)
-        return _create_temp_directory()
-
-
-def _handle_configured_directory(configured_dir: str) -> str:
-    """Gère la vérification et création du répertoire configuré."""
-    if os.path.exists(configured_dir):
-        return (
-            configured_dir
-            if _is_directory_writable(configured_dir)
-            else _create_temp_directory()
-        )
-
-    try:
-        os.makedirs(configured_dir, exist_ok=True)
-        return configured_dir
-    except OSError:
-        return _create_temp_directory()
-
-
-def _create_temp_directory() -> str:
-    """Crée et retourne un répertoire temporaire."""
-    temp_dir = os.path.join(tempfile.gettempdir(), "repo_clone_" + str(os.getpid()))
-    os.makedirs(temp_dir, exist_ok=True)
-    logger.info("Utilisation du répertoire temporaire: %s", temp_dir)
-    return temp_dir
-
-
-def _is_directory_writable(directory: str) -> bool:
-    """Vérifie si un répertoire est accessible en écriture."""
-    try:
-        test_file = os.path.join(directory, ".write_test")
-        with open(test_file, "w", encoding="utf-8") as f:
-            f.write("test")
-        os.remove(test_file)
-        return True
-    except OSError:
-        return False
-
-
-def _create_test_document(directory: str) -> None:
-    """Crée un document de test pour les tests unitaires."""
-    test_file = os.path.join(directory, "test_document.md")
-    with open(test_file, "w", encoding="utf-8") as f:
-        f.write(
-            "# Test Document\n\nCeci est un document de test pour les tests unitaires.\n"
-        )
-
-
-def _clone_or_pull_repo(repo_url: str, repo_dir: str) -> str:
-    """Clone ou met à jour un dépôt Git.
-
-    Supporte l'authentification pour les dépôts privés via:
-    - GitHub Personal Access Token (PAT)
-    - GitHub App (JWT)
-    - GitHub Actions token
-
-    Args:
-        repo_url: URL du dépôt Git
-        repo_dir: Répertoire local pour le clonage ou la mise à jour
-
-    Returns:
-        str: Chemin du répertoire contenant le dépôt cloné
-
-    Raises:
-        SystemExit: Si l'opération Git échoue
-    """
-    try:
-        # Vérifier si c'est une URL GitHub et configurer l'authentification si nécessaire
-        auth_url = repo_url
-        auth_message = None
-        if _is_github_url(repo_url):
-            auth_url, auth_message = _get_github_auth_url(repo_url)
-            if auth_message:
-                logger.info(auth_message)
-
-        if not os.path.exists(os.path.join(repo_dir, ".git")):
-            logger.info(
-                "Clonage du repo depuis %s dans le dossier %s...",
-                repo_url.split("@")[-1]
-                if "@" in repo_url
-                else repo_url,  # Masquer les identifiants
-                repo_dir,
-            )
-            subprocess.run(["git", "clone", auth_url, repo_dir], check=True)
-        else:
-            logger.info("Mise à jour du repo dans le dossier %s...", repo_dir)
-            # Mettre à jour l'URL distante si nécessaire pour l'authentification
-            if auth_message:
-                subprocess.run(
-                    ["git", "-C", repo_dir, "remote", "set-url", "origin", auth_url],
-                    check=True,
-                )
-            subprocess.run(["git", "-C", repo_dir, "pull"], check=True)
-        return repo_dir
-    except subprocess.CalledProcessError as e:
-        logger.error("Erreur lors de l'opération Git: %s", e)
-        sys.exit(1)
-
-
-def _is_github_url(url: str) -> bool:
-    """Vérifie si l'URL est une URL GitHub.
-
-    Args:
-        url: L'URL à vérifier
-
-    Returns:
-        bool: True si l'URL est une URL GitHub
-    """
-    return bool(re.match(r"^https?://(?:www\.)?github\.com/", url))
-
-
-def _get_github_auth_url(repo_url: str) -> tuple[str, str | None]:
-    """Construit une URL authentifiée pour GitHub si les identifiants sont disponibles.
-
-    Args:
-        repo_url: URL du dépôt GitHub
-
-    Returns:
-        Tuple[str, Optional[str]]: URL modifiée et message d'authentification
+        Github: Instance authentifiée du client GitHub
     """
     # Vérifier si GitHub Actions est utilisé
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        github_token = os.getenv("GITHUB_TOKEN")
-        if github_token:
-            # Dans GitHub Actions, utiliser le token GITHUB_TOKEN
-            auth_message = "Authentification via GITHUB_TOKEN dans GitHub Actions"
-            return _add_token_to_url(repo_url, github_token), auth_message
+    if os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("GITHUB_TOKEN"):
+        token = os.getenv("GITHUB_TOKEN")
+        logger.info("Utilisation de l'authentification GitHub Actions")
+        return Github(token, timeout=30)
 
-    # Vérifier si un GitHub App est configuré
-    github_app_id = os.getenv("GITHUB_APP_ID")
-    github_app_private_key = os.getenv("GITHUB_APP_PRIVATE_KEY")
-    if github_app_id and github_app_private_key:
-        # Utiliser GitHub App pour l'authentification
-        try:
-            from datetime import datetime, timedelta
+    # Vérifier si un PAT est configuré
+    if os.getenv("GITHUB_PAT"):
+        token = os.getenv("GITHUB_PAT")
+        logger.info("Utilisation du Personal Access Token GitHub")
+        return Github(token, timeout=30)
 
-            import jwt
-
-            # Créer un token JWT pour l'authentification GitHub App
-            now = int(datetime.now().timestamp())
-            payload = {
-                "iat": now,  # Issued at time
-                "exp": now + 600,  # Expiration time (10 minutes)
-                "iss": github_app_id,  # GitHub App ID
-            }
-
-            # Encoder la clé privée
-            private_key = github_app_private_key.replace("\\n", "\n")
-            encoded_jwt = jwt.encode(payload, private_key, algorithm="RS256")
-
-            auth_message = "Authentification via GitHub App"
-            return _add_token_to_url(repo_url, encoded_jwt), auth_message
-        except (ImportError, Exception) as e:
-            logger.warning("Erreur lors de l'authentification GitHub App: %s", e)
-
-    # Si un PAT est configuré, l'utiliser
-    github_token = os.getenv("GITHUB_PAT")
-    if github_token:
-        auth_message = "Authentification via GitHub Personal Access Token"
-        return _add_token_to_url(repo_url, github_token), auth_message
-
-    # Aucune authentification trouvée
-    return repo_url, None
+    # Si pas d'authentification, utiliser un client non authentifié
+    logger.warning(
+        "Aucune authentification GitHub configurée. Les limites de taux seront strictes (60 requêtes/heure)"
+    )
+    return Github(timeout=30)
 
 
-def _add_token_to_url(repo_url: str, token: str) -> str:
-    """Ajoute un token à l'URL GitHub.
+def is_file_relevant(file_path: str) -> bool:
+    """Détermine si un fichier doit être lu en fonction de son extension.
 
     Args:
-        repo_url: URL du dépôt GitHub
-        token: Token d'authentification
+        file_path: Chemin du fichier à vérifier
 
     Returns:
-        str: URL avec token d'authentification
+        bool: True si le fichier doit être lu, False sinon
     """
-    # Format: https://username:token@github.com/owner/repo.git
-    url_parts = repo_url.split("://", 1)
-    if len(url_parts) != 2:
-        return repo_url
+    ext = Path(file_path).suffix.lower()
 
-    protocol, rest = url_parts
-    return f"{protocol}://x-access-token:{token}@{rest}"
+    # Vérifier d'abord si l'extension est dans la liste des extensions exclues
+    if ext in EXCLUDED_EXTENSIONS:
+        return False
+
+    # Vérifier si l'extension est dans la liste des extensions incluses
+    if ext in INCLUDED_CODE_EXTENSIONS:
+        return True
+
+    return False
+
+
+def read_file_content(repo: Repository, file_path: str) -> str | None:
+    """Lit le contenu d'un fichier depuis un repository GitHub.
+
+    Args:
+        repo: Repository GitHub
+        file_path: Chemin du fichier dans le repository
+
+    Returns:
+        Optional[str]: Contenu du fichier ou None si erreur ou fichier non pertinent
+    """
+    try:
+        # Vérifier d'abord si le fichier est pertinent
+        if not is_file_relevant(file_path):
+            logger.debug("Le fichier %s n'est pas pertinent pour l'indexation", file_path)
+            return None
+
+        content = repo.get_contents(file_path)
+        if isinstance(content, list):
+            logger.debug("Le chemin %s est un dossier", file_path)
+            return None
+
+        try:
+            decoded_content = base64.b64decode(content.content).decode("utf-8")
+            if not decoded_content.strip():
+                logger.debug("Le fichier %s est vide", file_path)
+                return None
+            return decoded_content
+        except UnicodeDecodeError:
+            logger.debug("Le fichier %s n'est pas un fichier texte valide", file_path)
+            return None
+
+    except GithubException as e:
+        if e.status == 403 and "rate limit exceeded" in str(e.data.get("message", "")):
+            logger.error(
+                "Limite de taux GitHub dépassée lors de la lecture de %s. "
+                "Utilisez GITHUB_PAT pour augmenter la limite.",
+                file_path,
+            )
+        else:
+            logger.warning("Impossible de lire le fichier %s: %s", file_path, e)
+        return None
+
+
+def get_repository(owner: str, repo_name: str) -> Repository | None:
+    """Récupère un repository GitHub.
+
+    Args:
+        owner: Propriétaire du repository
+        repo_name: Nom du repository
+
+    Returns:
+        Optional[Repository]: Instance du repository ou None si non trouvé
+    """
+    try:
+        client = get_github_client()
+        repo = client.get_repo(f"{owner}/{repo_name}")
+        return repo
+    except GithubException as e:
+        logger.error("Erreur lors de l'accès au repository %s/%s: %s", owner, repo_name, e)
+        return None
+
+
+def list_repository_files(repo: Repository, path: str = "") -> list[tuple[str, str]]:
+    """Liste tous les fichiers d'un repository GitHub.
+
+    Args:
+        repo: Repository GitHub
+        path: Chemin dans le repository (optionnel)
+
+    Returns:
+        list[tuple[str, str]]: Liste de tuples (chemin du fichier, contenu)
+    """
+    files = []
+    try:
+        contents = repo.get_contents(path)
+        files_count = 0
+
+        while contents:
+            content = contents.pop(0)
+            if files_count % 10 == 0:  # Log tous les 10 fichiers
+                logger.info("Progression: %d fichiers traités", files_count)
+
+            if content.type == "dir":
+                try:
+                    dir_contents = repo.get_contents(content.path)
+                    contents.extend(dir_contents)
+                except GithubException as e:
+                    logger.warning(
+                        "Erreur lors de la lecture du dossier %s: %s", content.path, e
+                    )
+            else:
+                file_content = read_file_content(repo, content.path)
+                if file_content is not None:
+                    files.append((content.path, file_content))
+                files_count += 1
+
+        logger.info("Total: %d fichiers traités", files_count)
+
+    except GithubException as e:
+        if e.status == 403 and "rate limit exceeded" in str(e.data.get("message", "")):
+            logger.error(
+                "Limite de taux GitHub dépassée lors du listage des fichiers. "
+                "Utilisez GITHUB_PAT pour augmenter la limite."
+            )
+        else:
+            logger.error("Erreur lors de la lecture du repository: %s", e)
+
+    return files
+
+
+def read_repository_content(owner_repo: str) -> list[tuple[str, str]]:
+    """Lit tout le contenu pertinent d'un repository GitHub.
+
+    Args:
+        owner_repo: Repository au format "owner/repo"
+
+    Returns:
+        list[tuple[str, str]]: Liste de tuples (chemin du fichier, contenu)
+    """
+    try:
+        owner, repo_name = owner_repo.split("/")
+    except ValueError:
+        logger.error("Format de repository invalide. Utiliser 'owner/repo': %s", owner_repo)
+        return []
+
+    repo = get_repository(owner, repo_name)
+    if not repo:
+        return []
+
+    return list_repository_files(repo)

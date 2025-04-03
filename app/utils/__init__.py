@@ -9,14 +9,20 @@ from app.utils.export_utils import (
     is_local_environment,
     upload_directory_to_s3,
 )
-from app.utils.git_utils import clone_or_update_repo
+from app.utils.git_utils import (
+    get_github_client,
+    get_repository,
+    read_repository_content,
+)
 from app.utils.markdown_utils import read_markdown_files, segment_text
 from app.utils.vector_db_utils import (
     process_documents_for_faiss,
 )
 
 __all__ = [
-    "clone_or_update_repo",
+    "read_repository_content",
+    "get_github_client",
+    "get_repository",
     "read_markdown_files",
     "segment_text",
     "process_documents_for_faiss",
