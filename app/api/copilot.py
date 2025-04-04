@@ -1,5 +1,6 @@
 """Routeur FastAPI pour les endpoints Copilot."""
 
+import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
@@ -73,6 +74,18 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
         else translated_query
     )
     docs = retrieve_similar_documents(search_query, k=5)
+
+    # Log des documents similaires récupérés
+    for idx, doc in enumerate(docs, start=1):
+        logger.info(
+            "Document %d:\n- Content: %s\n- Distance: %.4f\n- Metadata: %s",
+            idx,
+            doc.get("content", "")[:100] + "...",  # Limite le contenu à 100 caractères
+            doc.get("distance", 0.0),
+            json.dumps(
+                doc.get("metadata", {}), indent=2
+            ),  # Format JSON pour les métadonnées
+        )
 
     # Vérification que nous avons des documents valides
     if not docs:
