@@ -97,12 +97,12 @@ def test_github_app_auth_failure(url: str) -> None:
         assert message is None
 
 @pytest.mark.parametrize('url', ["https://github.com/test/repo.git"])
-def test_github_pat_auth(url: str) -> None:
+def test_github_token_auth(url: str) -> None:
     """Teste l'authentification via Personal Access Token."""
-    with patch.dict(os.environ, {"GITHUB_PAT": "ghp_test_pat"}):
+    with patch.dict(os.environ, {"GITHUB_TOKEN": "ghp_test_token"}):
         auth_url, message = _get_github_auth_url(url)
-        assert "x-access-token:ghp_test_pat@" in auth_url
-        assert "Personal Access Token" in message
+        assert "x-access-token:ghp_test_token@" in auth_url
+        assert "GITHUB_TOKEN" in message
 
 @pytest.mark.parametrize('url', ["https://github.com/test/repo.git"])
 def test_no_auth(url: str) -> None:
@@ -114,8 +114,8 @@ def test_no_auth(url: str) -> None:
 @pytest.mark.parametrize('test_data,tmp_dir', [
     ({
         'url': "https://github.com/test/repo.git",
-        'token': "ghp_test_pat",
-        'env': {"GITHUB_PAT": "ghp_test_pat"}
+        'token': "ghp_test_token",
+        'env': {"GITHUB_TOKEN": "ghp_test_token"}
     }, None)
 ], indirect=['tmp_dir'])
 def test_clone_with_auth(test_data: dict, tmp_dir: str) -> None:
@@ -136,8 +136,8 @@ def test_clone_with_auth(test_data: dict, tmp_dir: str) -> None:
 @pytest.mark.parametrize('test_data,tmp_dir', [
     ({
         'url': "https://github.com/test/repo.git",
-        'token': "ghp_test_pat",
-        'env': {"GITHUB_PAT": "ghp_test_pat"}
+        'token': "ghp_test_token",
+        'env': {"GITHUB_TOKEN": "ghp_test_token"}
     }, None)
 ], indirect=['tmp_dir'])
 def test_update_with_auth(test_data: dict, tmp_dir: str) -> None:
