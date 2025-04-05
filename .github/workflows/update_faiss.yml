@@ -1,0 +1,83 @@
+name: Mise à jour de l'index FAISS
+
+on:
+  # Exécution manuelle depuis l'interface GitHub
+  workflow_dispatch:
+
+  # Planifier l'exécution hebdomadaire (tous les dimanches à 3h du matin)
+  # schedule:
+  #   - cron: '0 3 * * 0'
+
+jobs:
+  update-faiss:
+    name: Génération de l'index FAISS
+    runs-on: ubuntu-latest
+
+    env:
+      # Configuration des variables d'environnement
+      REPO_URLS: ${{ secrets.REPO_URLS }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'ca-central-1' }}
+      S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+      # Variables de configuration pour le script
+      ENV: "production"
+      LOG_LEVEL: "INFO"
+      TEMP_FAISS_DIR: "./temp/faiss_index"
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Configuration de Python 3.12
+        # Règle: Utiliser Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Installation de Poetry
+        # Règle: Utiliser Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_TOKEN
+
+      - name: Configuration de Poetry
+        run: |
+          poetry config virtualenvs.create false
+
+      - name: Installation des dépendances
+        # Règle: Gestion des dépendances avec Poetry
+        run: |
+          poetry install --no-interaction
+
+      - name: Création du répertoire temporaire
+        run: |
+          mkdir -p ${{ env.TEMP_FAISS_DIR }}
+
+      - name: Exécution du script update_faiss.py
+        # Règle: Utiliser des commandes claires et explicites
+        run: |
+          echo "Début de la génération de l'index FAISS"
+          python scripts/update_faiss.py
+          echo "Génération terminée"
+
+      - name: Vérification des fichiers générés
+        # Règle: Validation explicite des résultats
+        run: |
+          if [ ! -f "${{ env.TEMP_FAISS_DIR }}/index.faiss" ] || [ ! -f "${{ env.TEMP_FAISS_DIR }}/metadata.json" ]; then
+            echo "Erreur: Fichiers index.faiss ou metadata.json manquants"
+            exit 1
+          fi
+          echo "Fichiers générés avec succès"
+          ls -la ${{ env.TEMP_FAISS_DIR }}
+
+      - name: Upload des fichiers FAISS comme artefact
+        # Règle: Produire des artefacts pour utilisation ultérieure
+        uses: actions/upload-artifact@v4
+        with:
+          name: faiss-index
+          path: ${{ env.TEMP_FAISS_DIR }}
+          retention-days: 30
+          if-no-files-found: error
