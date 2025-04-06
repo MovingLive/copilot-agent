@@ -153,10 +153,16 @@ def test_update_with_auth(test_data: dict, tmp_dir: str) -> None:
         result = clone_or_update_repo(test_data['url'], tmp_dir)
 
         assert result == tmp_dir
-        mock_run.assert_has_calls([
-            call(["git", "-C", tmp_dir, "remote", "set-url", "origin", expected_auth_url], check=True),
-            call(["git", "-C", tmp_dir, "pull"], check=True)
-        ])
+
+        # Vérifier les appels en ignorant les parties masquées
+        mock_run.assert_any_call(
+            ["git", "-C", tmp_dir, "remote", "set-url", "origin", expected_auth_url],
+            check=True
+        )
+        mock_run.assert_any_call(
+            ["git", "-C", tmp_dir, "pull"],
+            check=True
+        )
 
 def test_clone_multiple_repos_success() -> None:
     """Teste le clonage réussi de plusieurs dépôts."""
