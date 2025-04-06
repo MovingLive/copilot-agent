@@ -161,6 +161,10 @@ def test_update_with_auth(test_data: dict, tmp_dir: str) -> None:
 
     with (
         patch("app.core.config.settings.GITHUB_TOKEN", test_data["token"]),
+        patch(
+            "app.core.config.settings.SKIP_GIT_CALLS", False
+        ),  # Forcer l'exécution des commandes Git
+        patch("app.core.config.settings.TESTING", False),  # Désactiver le mode test
         patch("subprocess.run") as mock_run,
     ):
         expected_auth_url = (
