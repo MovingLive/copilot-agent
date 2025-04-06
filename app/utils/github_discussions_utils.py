@@ -77,24 +77,26 @@ def extract_repo_info(repo_url: str) -> Optional[Tuple[str, str]]:
     Returns:
         Tuple[str, str] ou None: Le propriétaire et le nom du dépôt, ou None si l'URL est invalide
     """
+    from urllib.parse import urlparse
+
     # Supprimer l'extension .git si présente
     clean_url = repo_url.replace(".git", "")
 
-    # Gérer les URL sans protocole (github.com/owner/repo)
-    if clean_url.startswith("github.com/"):
-        parts = clean_url.split("/")
-        if len(parts) >= 3:
-            return parts[1], parts[2].rstrip("/")
+    # Ajouter le protocole si manquant
+    if not clean_url.startswith("http://") and not clean_url.startswith("https://"):
+        clean_url = "https://" + clean_url
 
-    # Traiter les URL au format https://github.com/owner/repo
-    parts = clean_url.split("/")
-    if len(parts) >= 4 and "github.com" in parts:
-        # Trouver l'index de github.com
-        github_index = parts.index("github.com")
-        if len(parts) > github_index + 2:
-            owner = parts[github_index + 1]
-            repo = parts[github_index + 2].rstrip("/")
-            return owner, repo
+    # Analyser l'URL
+    parsed_url = urlparse(clean_url)
+
+    # Vérifier que l'h��te est github.com
+    if parsed_url.hostname != "github.com":
+        return None
+
+    # Extraire le chemin et diviser en parties
+    parts = parsed_url.path.strip("/").split("/")
+    if len(parts) >= 2:
+        return parts[0], parts[1]
 
     return None
 
