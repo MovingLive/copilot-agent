@@ -275,25 +275,25 @@ def configure_search_parameters(
 
 
 def _search_in_index(
-    query_vector: np.ndarray, num_results: int, precision_priority: bool = False
+    query_vector: np.ndarray, max_results: int, precision_priority: bool = False
 ) -> tuple[np.ndarray, np.ndarray]:
     """Effectue la recherche dans l'index FAISS avec paramètres optimisés."""
     if _state.index is None:
         raise FAISSLoadError("Index FAISS non disponible")
 
     # Configure les paramètres de recherche optimaux
-    search_params = configure_search_parameters(num_results, precision_priority)
+    search_params = configure_search_parameters(max_results, precision_priority)
     logger.info("🔍 Recherche avec paramètres: %s", search_params)
 
     try:
-        distances, indices = _state.index.search(query_vector, num_results)
+        distances, indices = _state.index.search(query_vector, max_results)
 
         # Log détaillé des résultats bruts
         valid_indices = [idx for idx in indices[0] if idx >= 0]
         logger.info(
             "🔍 Résultats bruts: %d résultats valides sur %d demandés",
             len(valid_indices),
-            num_results,
+            max_results,
         )
 
         if len(valid_indices) > 0:
