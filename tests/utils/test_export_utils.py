@@ -12,7 +12,6 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from app.core.config import settings
 from app.utils.export_utils import (
     copy_to_local_output,
     export_data,
@@ -29,13 +28,13 @@ def temp_source_dir():
     # Créer quelques fichiers de test
     with open(os.path.join(temp_dir, "test1.txt"), "w", encoding="utf-8") as f:
         f.write("Contenu de test 1")
-    
+
     # Créer un sous-répertoire
     subdir = os.path.join(temp_dir, "subdir")
     os.makedirs(subdir)
     with open(os.path.join(subdir, "test2.txt"), "w", encoding="utf-8") as f:
         f.write("Contenu de test 2")
-    
+
     yield temp_dir
     # Nettoyage
     shutil.rmtree(temp_dir)
@@ -89,7 +88,7 @@ def test_copy_to_local_output(temp_source_dir, temp_dest_dir):
     with patch("app.core.config.settings.LOCAL_OUTPUT_DIR", temp_dest_dir):
         # Tester avec le répertoire de destination par défaut
         copy_to_local_output(temp_source_dir)
-    
+
         # Vérifier que les fichiers ont été copiés
         assert os.path.exists(os.path.join(temp_dest_dir, "test1.txt"))
         assert os.path.exists(os.path.join(temp_dest_dir, "subdir", "test2.txt"))
@@ -97,7 +96,9 @@ def test_copy_to_local_output(temp_source_dir, temp_dest_dir):
         # Vérifier le contenu
         with open(os.path.join(temp_dest_dir, "test1.txt"), encoding="utf-8") as f:
             assert f.read() == "Contenu de test 1"
-        with open(os.path.join(temp_dest_dir, "subdir", "test2.txt"), encoding="utf-8") as f:
+        with open(
+            os.path.join(temp_dest_dir, "subdir", "test2.txt"), encoding="utf-8"
+        ) as f:
             assert f.read() == "Contenu de test 2"
 
 
@@ -128,7 +129,7 @@ def test_upload_directory_to_s3(temp_source_dir, mock_s3_bucket):
     objects = s3.list_objects(Bucket=bucket_name, Prefix=prefix)
     assert "Contents" in objects
     assert len(objects["Contents"]) == 2
-    
+
     # Vérifier les chemins
     keys = [obj["Key"] for obj in objects["Contents"]]
     assert f"{prefix}/test1.txt" in keys
@@ -148,7 +149,9 @@ def test_upload_directory_to_s3_error(temp_source_dir):
         with patch("app.core.config.settings.AWS_REGION", "us-east-1"):
             with patch("app.core.config.settings.AWS_ACCESS_KEY_ID", "test"):
                 with patch("app.core.config.settings.AWS_SECRET_ACCESS_KEY", "test"):
-                    with patch("app.core.config.settings.S3_BUCKET_NAME", "test-bucket"):
+                    with patch(
+                        "app.core.config.settings.S3_BUCKET_NAME", "test-bucket"
+                    ):
                         # L'upload devrait échouer sans lever d'exception
                         upload_directory_to_s3(temp_source_dir)
 
@@ -174,7 +177,9 @@ def test_export_data_s3(temp_source_dir, mock_s3_bucket):
         with patch("app.core.config.settings.S3_BUCKET_NAME", bucket_name):
             with patch("app.core.config.settings.AWS_REGION", "us-east-1"):
                 with patch("app.core.config.settings.AWS_ACCESS_KEY_ID", "test"):
-                    with patch("app.core.config.settings.AWS_SECRET_ACCESS_KEY", "test"):
+                    with patch(
+                        "app.core.config.settings.AWS_SECRET_ACCESS_KEY", "test"
+                    ):
                         # Exporter les données
                         export_data(temp_source_dir, prefix, bucket_name)
 

@@ -1,13 +1,10 @@
 """Tests pour le module github_discussions_utils."""
 
-import json
-import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 import httpx
+import pytest
 
-from app.core.config import settings
 from app.utils.github_discussions_utils import (
     execute_graphql_query,
     extract_repo_info,
@@ -110,7 +107,9 @@ class TestFetchDiscussions:
                                     "author": {"login": "user1"},
                                 },
                                 "category": {"name": "Q&A"},
-                                "labels": {"nodes": [{"name": "bug"}, {"name": "help"}]},
+                                "labels": {
+                                    "nodes": [{"name": "bug"}, {"name": "help"}]
+                                },
                             },
                             {
                                 "id": "D_2",
@@ -134,7 +133,9 @@ class TestFetchDiscussions:
         results = fetch_validated_discussions("owner", "repo", 10)
 
         # Vérifier les résultats
-        assert len(results) == 1  # Seule la discussion avec réponse validée doit être retournée
+        assert (
+            len(results) == 1
+        )  # Seule la discussion avec réponse validée doit être retournée
         assert results[0]["id"] == "D_1"
         assert results[0]["title"] == "Discussion 1"
         assert results[0]["answer"] == "Réponse 1"
@@ -144,7 +145,9 @@ class TestFetchDiscussions:
     def test_fetch_validated_discussions_empty(self, mock_execute_query):
         """Vérifier le comportement avec des données vides."""
         # Simuler un retour sans discussions
-        mock_execute_query.return_value = {"data": {"repository": {"discussions": {"nodes": []}}}}
+        mock_execute_query.return_value = {
+            "data": {"repository": {"discussions": {"nodes": []}}}
+        }
 
         # Exécuter la fonction
         results = fetch_validated_discussions("owner", "repo")
@@ -188,12 +191,12 @@ class TestFormatDiscussions:
         # Vérifications
         assert len(formatted) == 1
         file_path, content = formatted[0]
-        
+
         # Vérifier le chemin de fichier
         assert file_path.startswith("github_discussions/Q&A/")
         assert "Test_Discussion" in file_path
         assert file_path.endswith(".md")
-        
+
         # Vérifier le contenu
         assert "# Test Discussion" in content
         assert "Description du test" in content
@@ -220,30 +223,32 @@ class TestGetValidatedDiscussions:
         # Configuration des mocks
         mock_extract.side_effect = [
             ("owner1", "repo1"),  # Premier dépôt valide
-            None,                 # Deuxième dépôt invalide
+            None,  # Deuxième dépôt invalide
             ("owner2", "repo2"),  # Troisième dépôt valide
         ]
-        
+
         discussions1 = [{"id": "D1", "title": "Discussion 1"}]
         discussions2 = [{"id": "D2", "title": "Discussion 2"}]
         mock_fetch.side_effect = [discussions1, discussions2]
-        
+
         formatted1 = [("path1", "content1")]
         formatted2 = [("path2", "content2")]
         mock_format.side_effect = [formatted1, formatted2]
-        
+
         # Exécuter la fonction
-        results = get_validated_discussions_from_repos([
-            "https://github.com/owner1/repo1",
-            "invalid-url",
-            "https://github.com/owner2/repo2",
-        ])
-        
+        results = get_validated_discussions_from_repos(
+            [
+                "https://github.com/owner1/repo1",
+                "invalid-url",
+                "https://github.com/owner2/repo2",
+            ]
+        )
+
         # Vérifications
         assert len(results) == 2
         assert results[0] == ("path1", "content1")
         assert results[1] == ("path2", "content2")
-        
+
         # Vérifier que les fonctions ont été appelées correctement
         assert mock_extract.call_count == 3
         assert mock_fetch.call_count == 2
@@ -257,10 +262,10 @@ class TestGetValidatedDiscussions:
         """Vérifier le comportement quand toutes les URL sont invalides."""
         # Simuler des URL invalides
         mock_extract.return_value = None
-        
+
         # Exécuter la fonction
         results = get_validated_discussions_from_repos(["invalid-url1", "invalid-url2"])
-        
+
         # Vérifier que le résultat est une liste vide
         assert results == []
         assert mock_extract.call_count == 2

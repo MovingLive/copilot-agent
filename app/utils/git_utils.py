@@ -89,7 +89,9 @@ def _handle_parent_directory(parent_dir: str, configured_dir: str) -> str:
                 "Système de fichiers en lecture seule détecté pour %s", parent_dir
             )
         else:
-            logger.warning("Impossible de créer le répertoire parent %s: %s", parent_dir, e)
+            logger.warning(
+                "Impossible de créer le répertoire parent %s: %s", parent_dir, e
+            )
         return _create_temp_directory()
 
 

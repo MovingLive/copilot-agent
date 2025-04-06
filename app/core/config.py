@@ -43,7 +43,9 @@ class Settings(BaseModel):
     TEMP_FAISS_DIR: str = os.getenv(
         "TEMP_FAISS_DIR",
         os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            os.path.dirname(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            ),
             "temp",
             "faiss_index",
         ),
@@ -51,7 +53,9 @@ class Settings(BaseModel):
 
     # Configuration GitHub
     # <organisation>/<repository>
-    REPO_URLS: str = os.getenv("REPO_URLS", "[]")  # Format: ["url1", "url2"] ou url1,url2
+    REPO_URLS: str = os.getenv(
+        "REPO_URLS", "[]"
+    )  # Format: ["url1", "url2"] ou url1,url2
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
     GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
     GITHUB_APP_PRIVATE_KEY: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")

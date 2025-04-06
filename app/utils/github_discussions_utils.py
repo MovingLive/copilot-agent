@@ -39,7 +39,9 @@ def execute_graphql_query(query: str, variables: Dict[str, Any]) -> Dict[str, An
     # Obtenir le token du paramètre centralisé
     token = settings.GITHUB_TOKEN
     if not token:
-        raise ValueError("Token GitHub non configuré. Définissez GITHUB_TOKEN dans .env")
+        raise ValueError(
+            "Token GitHub non configuré. Définissez GITHUB_TOKEN dans .env"
+        )
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -57,7 +59,9 @@ def execute_graphql_query(query: str, variables: Dict[str, Any]) -> Dict[str, An
         return response.json()
     except httpx.HTTPStatusError as e:
         logger.error("Erreur lors de la requête GraphQL: %s", e)
-        logger.error("Détails: %s", response.text if "response" in locals() else "Pas de réponse")
+        logger.error(
+            "Détails: %s", response.text if "response" in locals() else "Pas de réponse"
+        )
         raise
     except httpx.RequestError as e:
         logger.error("Erreur de requête GraphQL: %s", e)
@@ -75,13 +79,13 @@ def extract_repo_info(repo_url: str) -> Optional[Tuple[str, str]]:
     """
     # Supprimer l'extension .git si présente
     clean_url = repo_url.replace(".git", "")
-    
+
     # Gérer les URL sans protocole (github.com/owner/repo)
     if clean_url.startswith("github.com/"):
         parts = clean_url.split("/")
         if len(parts) >= 3:
             return parts[1], parts[2].rstrip("/")
-    
+
     # Traiter les URL au format https://github.com/owner/repo
     parts = clean_url.split("/")
     if len(parts) >= 4 and "github.com" in parts:
@@ -91,7 +95,7 @@ def extract_repo_info(repo_url: str) -> Optional[Tuple[str, str]]:
             owner = parts[github_index + 1]
             repo = parts[github_index + 2].rstrip("/")
             return owner, repo
-    
+
     return None
 
 
