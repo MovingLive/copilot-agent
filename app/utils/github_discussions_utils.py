@@ -89,7 +89,7 @@ def extract_repo_info(repo_url: str) -> Optional[Tuple[str, str]]:
     # Analyser l'URL
     parsed_url = urlparse(clean_url)
 
-    # Vérifier que l'h��te est github.com
+    # Vérifier que l'hôte est github.com
     if parsed_url.hostname != "github.com":
         return None
 
