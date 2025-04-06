@@ -2,11 +2,12 @@
 
 Ce script réalise les opérations suivantes :
 1. Cloner ou mettre à jour plusieurs dépôts GitHub contenant de la documentation et du code source.
-2. Lire et segmenter les fichiers en morceaux de taille raisonnable.
-3. Filtrer les fichiers non pertinents (images, binaires, etc.).
-4. Générer des embeddings pour chaque segment à l'aide du modèle "all-MiniLM-L6-v2".
-5. Indexer ces embeddings dans un index FAISS.
-6. Synchroniser le dossier contenant l'index FAISS vers un bucket AWS S3 ou un répertoire local.
+2. Récupérer les discussions GitHub validées via l'API GraphQL.
+3. Lire et segmenter les fichiers en morceaux de taille raisonnable.
+4. Filtrer les fichiers non pertinents (images, binaires, etc.).
+5. Générer des embeddings pour chaque segment à l'aide du modèle "all-MiniLM-L6-v2".
+6. Indexer ces embeddings dans un index FAISS.
+7. Synchroniser le dossier contenant l'index FAISS vers un bucket AWS S3 ou un répertoire local.
 """
 
 import json
@@ -20,7 +21,9 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
 # Ajouter le répertoire parent au chemin pour pouvoir importer les modules de app
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.append(
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 # Import le plus tôt possible pour la configuration
 from app.core.config import settings
@@ -31,6 +34,7 @@ from app.services.faiss_service import save_faiss_index
 from app.utils.document_utils import read_relevant_files
 from app.utils.export_utils import export_data, is_local_environment
 from app.utils.git_utils import clone_multiple_repos
+from app.utils.github_discussions_utils import get_validated_discussions_from_repos
 from app.utils.vector_db_utils import process_files_for_faiss
 
 # --- Chargement des variables d'environnement ---
@@ -139,22 +143,32 @@ def main() -> None:
         documents = read_relevant_files(repo_dir)
         all_documents.extend(documents)
 
+    # Étape 3 : Récupérer les discussions GitHub validées
+    logging.info("Récupération des discussions GitHub validées...")
+    github_discussions = get_validated_discussions_from_repos(repo_urls)
+    logging.info(
+        "Récupéré %d discussions GitHub validées au total", len(github_discussions)
+    )
+
+    # Ajouter les discussions GitHub aux documents à indexer
+    all_documents.extend(github_discussions)
+
     if not all_documents:
         raise ValueError("La liste de documents est vide")
 
-    # Étape 3 : Traiter les documents pour FAISS
+    # Étape 4 : Traiter les documents pour FAISS
     processed_docs = process_files_for_faiss(all_documents, settings.SEGMENT_MAX_LENGTH)
 
-    # Étape 4 : Charger le modèle d'embedding
+    # Étape 5 : Charger le modèle d'embedding
     model = load_embedding_model()
 
-    # Étape 5 : Générer l'index FAISS et le mapping des métadonnées
+    # Étape 6 : Générer l'index FAISS et le mapping des métadonnées
     index, metadata_mapping = create_faiss_index(processed_docs, model)
 
-    # Étape 6 : Sauvegarder l'index FAISS et le mapping
+    # Étape 7 : Sauvegarder l'index FAISS et le mapping
     save_faiss_index(index, metadata_mapping, settings.TEMP_FAISS_DIR)
 
-    # Étape 7 : Exporter les données
+    # Étape 8 : Exporter les données
     is_test_mode = "pytest" in sys.modules
     if not is_local_environment() or is_test_mode:
         logging.info("Exportation des données...")

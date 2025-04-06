@@ -31,6 +31,8 @@ class Settings(BaseModel):
 
     # Environnement
     ENV: str = os.getenv("ENV", "local")
+    TESTING: bool = os.getenv("TESTING", "false").lower() == "true"
+    SKIP_GIT_CALLS: bool = os.getenv("SKIP_GIT_CALLS", "false").lower() == "true"
 
     # Configuration FAISS
     FAISS_INDEX_FILE: str = os.getenv("FAISS_INDEX_FILE", "index.faiss")
@@ -48,6 +50,7 @@ class Settings(BaseModel):
     )
 
     # Configuration GitHub
+    # <organisation>/<repository>
     REPO_URLS: str = os.getenv("REPO_URLS", "[]")  # Format: ["url1", "url2"] ou url1,url2
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
     GITHUB_APP_ID: str = os.getenv("GITHUB_APP_ID", "")
@@ -57,6 +60,8 @@ class Settings(BaseModel):
     S3_BUCKET_NAME: str = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
     S3_BUCKET_PREFIX: str = "faiss_index"
     AWS_REGION: str = os.getenv("AWS_REGION", "ca-central-1")
+    AWS_ACCESS_KEY_ID: str = os.getenv("AWS_ACCESS_KEY_ID", "testing")
+    AWS_SECRET_ACCESS_KEY: str = os.getenv("AWS_SECRET_ACCESS_KEY", "testing")
 
     # Configuration API Copilot
     COPILOT_API_URL: str = os.getenv(
