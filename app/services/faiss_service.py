@@ -232,17 +232,19 @@ def _prepare_query_vector(query_vector: np.ndarray) -> np.ndarray:
     return query_vector
 
 
-def configure_search_parameters(k: int, precision_priority: bool = False) -> dict[str, Any]:
+def configure_search_parameters(
+    max_results: int, precision_priority: bool = False
+) -> dict[str, Any]:
     """Configure les paramètres de recherche FAISS optimaux.
 
     Args:
-        k: Nombre de résultats à retourner
+        max_results: Nombre de résultats à retourner
         precision_priority: Si vrai, privilégie la précision à la vitesse
 
     Returns:
         Dict[str, Any]: Paramètres optimisés pour la recherche
     """
-    params = {"k": k}
+    params = {"k": max_results}
 
     # Adaptation des paramètres selon le type d'index
     if _state.index is None:
@@ -254,7 +256,7 @@ def configure_search_parameters(k: int, precision_priority: bool = False) -> dic
         nprobe = 8  # Valeur par défaut
         if precision_priority:
             # Si on veut plus de précision, on augmente nprobe
-            nprobe = min(32, max(16, k * 2))  # Au moins 16, au plus 32
+            nprobe = min(32, max(16, max_results * 2))  # Au moins 16, au plus 32
 
         _state.index.nprobe = nprobe
         params["nprobe"] = nprobe
@@ -263,7 +265,7 @@ def configure_search_parameters(k: int, precision_priority: bool = False) -> dic
     elif hasattr(_state.index, "hnsw"):
         ef_search = 16  # Valeur par défaut
         if precision_priority:
-            ef_search = min(80, max(40, k * 4))  # Au moins 40, au plus 80
+            ef_search = min(80, max(40, max_results * 4))  # Au moins 40, au plus 80
 
         _state.index.hnsw.efSearch = ef_search
         params["ef_search"] = ef_search
@@ -273,25 +275,25 @@ def configure_search_parameters(k: int, precision_priority: bool = False) -> dic
 
 
 def _search_in_index(
-    query_vector: np.ndarray, k: int, precision_priority: bool = False
+    query_vector: np.ndarray, max_results: int, precision_priority: bool = False
 ) -> tuple[np.ndarray, np.ndarray]:
     """Effectue la recherche dans l'index FAISS avec paramètres optimisés."""
     if _state.index is None:
         raise FAISSLoadError("Index FAISS non disponible")
 
     # Configure les paramètres de recherche optimaux
-    search_params = configure_search_parameters(k, precision_priority)
+    search_params = configure_search_parameters(max_results, precision_priority)
     logger.info("🔍 Recherche avec paramètres: %s", search_params)
 
     try:
-        distances, indices = _state.index.search(query_vector, k)
+        distances, indices = _state.index.search(query_vector, max_results)
 
         # Log détaillé des résultats bruts
         valid_indices = [idx for idx in indices[0] if idx >= 0]
         logger.info(
             "🔍 Résultats bruts: %d résultats valides sur %d demandés",
             len(valid_indices),
-            k,
+            max_results,
         )
 
         if len(valid_indices) > 0:
@@ -307,14 +309,6 @@ def _search_in_index(
                 )
             else:
                 logger.info("📏 Aucune distance non nulle trouvée.")
-            # Log des 3 premiers indices et distances pour débogage
-            for i, idx in enumerate(valid_indices[:3]):
-                logger.info(
-                    "🏆 Top %d: ID=%d, distance=%.4f",
-                    i + 1,
-                    idx,
-                    distances[0][indices[0] == idx][0],
-                )
         return distances, indices
     except RuntimeError as e:
         logger.error("❌ Erreur lors de la recherche FAISS: %s", e)
@@ -349,13 +343,16 @@ def _process_search_results(
 
 
 def retrieve_similar_documents(
-    query: str, k: int = 30, precision_priority: bool = False, use_cache: bool = True
+    query: str,
+    max_result: int = 30,
+    precision_priority: bool = False,
+    use_cache: bool = True,
 ) -> list[dict[str, Any]]:
     """Recherche les documents les plus similaires à la requête.
 
     Args:
         query: La requête texte
-        k: Nombre de résultats à retourner
+        max_result: Nombre de résultats à retourner
         precision_priority: Si True, privilégie la précision à la vitesse
         use_cache: Si True, utilise le cache pour les résultats de recherche
 
@@ -386,7 +383,9 @@ def retrieve_similar_documents(
     try:
         query_vector = generate_query_vector(query)
         prepared_vector = _prepare_query_vector(query_vector)
-        distances, indices = _search_in_index(prepared_vector, k, precision_priority)
+        distances, indices = _search_in_index(
+            prepared_vector, max_result, precision_priority
+        )
         results = _process_search_results(distances, indices)
 
         # Stockage des résultats dans le cache pour les requêtes futures
