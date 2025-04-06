@@ -133,7 +133,8 @@ def test_clone_with_auth(test_data: dict, tmp_dir: str) -> None:
         )
         result = clone_or_update_repo(test_data["url"], tmp_dir)
 
-        assert os.path.exists(result)
+        assert os.path.exists(result), "Le répertoire cloné n'existe pas."
+        assert mock_run.call_count == 1, "subprocess.run n'a pas été appelé."
         mock_run.assert_called_once_with(
             ["git", "clone", expected_auth_url, tmp_dir], check=True
         )
@@ -167,7 +168,8 @@ def test_update_with_auth(test_data: dict, tmp_dir: str) -> None:
         )
         result = clone_or_update_repo(test_data["url"], tmp_dir)
 
-        assert result == tmp_dir
+        assert result == tmp_dir, "Le chemin du répertoire mis à jour est incorrect."
+        assert mock_run.call_count == 2, "subprocess.run n'a pas été appelé deux fois."
         mock_run.assert_has_calls(
             [
                 call(
