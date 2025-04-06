@@ -137,25 +137,9 @@ def test_clone_with_auth(test_data: dict, tmp_dir: str) -> None:
         assert mock_run.call_count == 1, "subprocess.run n'a pas été appelé."
         mock_run.assert_called_once_with(
             ["git", "clone", expected_auth_url, tmp_dir], check=True
-            ["git", "clone", expected_auth_url, tmp_dir], check=True
         )
 
 
-
-@pytest.mark.parametrize(
-    "test_data,tmp_dir",
-    [
-        (
-            {
-                "url": "https://github.com/test/repo.git",
-                "token": "ghp_test_token",
-                "env": {"GITHUB_TOKEN": "ghp_test_token"},
-            },
-            None,
-        )
-    ],
-    indirect=["tmp_dir"],
-)
 @pytest.mark.parametrize(
     "test_data,tmp_dir",
     [
