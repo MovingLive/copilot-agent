@@ -61,7 +61,7 @@ def fake_load_index():
 
 def test_retrieve_similar_documents_success(monkeypatch):
     monkeypatch.setattr(faiss_service, "generate_query_vector", fake_generate_query_vector)
-    results = faiss_service.retrieve_similar_documents("Test query", k=3)
+    results = faiss_service.retrieve_similar_documents("Test query", max_result=3)
     assert len(results) == 1
     assert results[0]["content"] == "Document de test"
 
@@ -72,21 +72,21 @@ def test_retrieve_similar_documents_dim_mismatch(monkeypatch):
     def fake_query_vector(query: str):
         return np.ones((1, 200), dtype="float32")
     monkeypatch.setattr(faiss_service, "generate_query_vector", fake_query_vector)
-    results = faiss_service.retrieve_similar_documents("Dim mismatch", k=3)
+    results = faiss_service.retrieve_similar_documents("Dim mismatch", max_result=3)
     assert len(results) == 1
     assert results[0]["content"] == "Doc mismatch"
 
 def test_retrieve_similar_documents_search_error(monkeypatch):
     monkeypatch.setattr(faiss_service, "generate_query_vector", fake_generate_query_vector)
     monkeypatch.setattr(faiss_service, "_search_in_index", fake_search_error)
-    results = faiss_service.retrieve_similar_documents("Error query", k=3)
+    results = faiss_service.retrieve_similar_documents("Error query", max_result=3)
     assert results == []
 
 def test_retrieve_similar_documents_load_index(monkeypatch):
     faiss_service._state.index = None
     monkeypatch.setattr(faiss_service, "load_index", lambda: fake_load_index())
     monkeypatch.setattr(faiss_service, "generate_query_vector", fake_generate_query_vector)
-    results = faiss_service.retrieve_similar_documents("Load index", k=3)
+    results = faiss_service.retrieve_similar_documents("Load index", max_result=3)
     assert len(results) == 1
     assert "Document from load_index" in results[0]["content"]
 
@@ -168,7 +168,7 @@ def test_configure_search_parameters_flat():
     index = faiss.IndexFlatL2(128)
     faiss_service._state.index = index
 
-    params = configure_search_parameters(k=10, precision_priority=True)
+    params = configure_search_parameters(max_results=10, precision_priority=True)
     assert params['k'] == 10
 
 def test_configure_search_parameters_ivf():
@@ -179,12 +179,12 @@ def test_configure_search_parameters_ivf():
     faiss_service._state.index = index
 
     # Test avec precision_priority=True
-    params = configure_search_parameters(k=10, precision_priority=True)
+    params = configure_search_parameters(max_results=10, precision_priority=True)
     assert params['k'] == 10
     assert params['nprobe'] >= 16
 
     # Test avec precision_priority=False
-    params = configure_search_parameters(k=10, precision_priority=False)
+    params = configure_search_parameters(max_results=10, precision_priority=False)
     assert params['nprobe'] == 8
 
 @pytest.mark.asyncio
