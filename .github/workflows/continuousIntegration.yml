@@ -25,7 +25,7 @@ jobs:
       ENV: test
       FAISS_INDEX_FILE: index.faiss
       FAISS_METADATA_FILE: metadata.json
-      REPO_URLS: https://github.com/test/repo.git
+      REPO_URLS: test/repo
       S3_BUCKET_NAME: test-bucket
       # Variables pour éviter les erreurs SSL
       PYTHONWARNINGS: "ignore:Unverified HTTPS request"

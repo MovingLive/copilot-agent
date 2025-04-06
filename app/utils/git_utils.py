@@ -225,12 +225,11 @@ def _get_github_auth_url(repo_url: str) -> tuple[str, str | None]:
         Tuple[str, Optional[str]]: URL modifiée et message d'authentification
     """
     # Vérifier si GitHub Actions est utilisé
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        github_token = os.getenv("GITHUB_TOKEN")
-        if github_token:
-            # Dans GitHub Actions, utiliser le token GITHUB_TOKEN
-            auth_message = "Authentification via GITHUB_TOKEN dans GitHub Actions"
-            return _add_token_to_url(repo_url, github_token), auth_message
+    github_token = os.getenv("GITHUB_TOKEN")
+    if github_token:
+        # Dans GitHub Actions, utiliser le token GITHUB_TOKEN
+        auth_message = "Authentification via GITHUB_TOKEN dans GitHub Actions"
+        return _add_token_to_url(repo_url, github_token), auth_message
 
     # Vérifier si un GitHub App est configuré
     github_app_id = os.getenv("GITHUB_APP_ID")
@@ -258,12 +257,6 @@ def _get_github_auth_url(repo_url: str) -> tuple[str, str | None]:
             return _add_token_to_url(repo_url, encoded_jwt), auth_message
         except (ImportError, Exception) as e:
             logger.warning("Erreur lors de l'authentification GitHub App: %s", e)
-
-    # Si un PAT est configuré, l'utiliser
-    github_token = os.getenv("GITHUB_PAT")
-    if github_token:
-        auth_message = "Authentification via GitHub Personal Access Token"
-        return _add_token_to_url(repo_url, github_token), auth_message
 
     # Aucune authentification trouvée
     return repo_url, None
