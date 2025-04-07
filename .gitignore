@@ -7,3 +7,4 @@
 output
 temp
 .coverage.**
+coverage_html
