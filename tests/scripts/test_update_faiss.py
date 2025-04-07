@@ -29,6 +29,7 @@ class MockSettings:
     S3_BUCKET_NAME = "test-bucket"
     LOG_LEVEL = "INFO"
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    ENV = "test"  # Ajout de l'attribut ENV manquant
 
 
 @pytest.fixture(autouse=True)
