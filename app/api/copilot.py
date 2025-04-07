@@ -73,7 +73,7 @@ async def handle_copilot_query(request: Request) -> StreamingResponse:
         if translated_additional_context
         else translated_query
     )
-    docs = retrieve_similar_documents(search_query, max_result=5)
+    docs = retrieve_similar_documents(search_query, max_result=5, precision_priority= True)
 
     # Log des documents similaires récupérés
     for idx, doc in enumerate(docs, start=1):
