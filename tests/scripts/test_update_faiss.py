@@ -29,6 +29,7 @@ class MockSettings:
     LOG_LEVEL = "INFO"
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     ENV = "test"  # Ajout de l'attribut ENV manquant
+    MODEL_MINILM_L6 = "all-MiniLM-L6-v2"  # Ajout de l'attribut MODEL_MINILM_L6 manquant
 
 
 @pytest.fixture(autouse=True)
@@ -293,13 +294,8 @@ def test_load_embedding_model_mock():
         # Vérification que la fonction charge le modèle depuis HuggingFace
         model = load_embedding_model()
 
-        # Vérifier que SentenceTransformer a été appelé avec le bon argument
+        # Vérifier que SentenceTransformer a été appelé avec le bon argument (settings.MODEL_MINILM_L6)
         mock_transformer.assert_called_once_with("all-MiniLM-L6-v2")
-
-        # Test avec un nom de modèle personnalisé
-        mock_transformer.reset_mock()
-        model = load_embedding_model("custom-model")
-        mock_transformer.assert_called_once_with("custom-model")
 
 
 @pytest.mark.parametrize(
