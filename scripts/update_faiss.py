@@ -46,8 +46,23 @@ logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
 
 def load_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
     """Charge le modèle d'embedding SentenceTransformer."""
-    logging.info("Chargement du modèle d'embedding '%s'...", model_name)
-    return SentenceTransformer(model_name)
+    # Règle: Compatibilité avec les tests
+    # Pour que les tests fonctionnent, on prend en compte à la fois settings.ENV et os.getenv
+
+    # GitHub nous permet pas de charger le model depuis HuggingFace
+    # si on est en mode production, donc on doit le charger depuis le repo local
+    if settings.ENV == "production":
+        # Utiliser le modèle local dans le repository
+        model_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            f"models--sentence-transformers--{model_name}"
+        )
+        logging.info("Environnement de production : chargement du modèle local '%s' depuis %s", model_name, model_path)
+        return SentenceTransformer(model_path)
+    else:
+        # Utiliser le modèle de HuggingFace en développement
+        logging.info("Chargement du modèle d'embedding '%s' depuis HuggingFace...", model_name)
+        return SentenceTransformer(model_name)
 
 
 def create_faiss_index(
