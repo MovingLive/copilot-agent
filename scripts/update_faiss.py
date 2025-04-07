@@ -44,98 +44,13 @@ load_dotenv()
 logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
 
 
-def load_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
-    """Charge le modèle d'embedding SentenceTransformer depuis le dossier local."""
-    # Règle: Gestion robuste des erreurs
-
-    # Définir explicitement le chemin du modèle local
-    model_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "models",
-        model_name,
-    )
-
-    logging.info(
-        "Tentative de chargement du modèle local '%s' depuis %s", model_name, model_path
-    )
-
-    # Vérifier si le dossier du modèle existe
-    if not os.path.exists(model_path):
-        logging.error("Le dossier du modèle n'existe pas: %s", model_path)
-        raise FileNotFoundError(
-            f"Le dossier du modèle '{model_name}' est introuvable à {model_path}"
-        )
-
-    try:
-        model = SentenceTransformer(model_path)
-        logging.info("Modèle '%s' chargé avec succès", model_name)
-        return model
-    except Exception as e:
-        logging.error("Erreur lors du chargement du modèle local: %s", str(e))
-
-        # Instructions pour recréer le modèle
-        logging.warning(
-            "Le modèle local est probablement corrompu. Pour le recréer, exécutez:"
-        )
-        logging.warning("rm -rf %s", model_path)
-        logging.warning(
-            "poetry run python -c \"from sentence_transformers import SentenceTransformer; model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); model.save('%s')\"",
-            model_path,
-        )
-
-        # Message d'erreur spécifique pour l'environnement de production
-        if settings.ENV == "production":
-            logging.critical("ÉCHEC DU CHARGEMENT DU MODÈLE EN PRODUCTION")
-
-            # Pour les environnements CI/CD, proposer une option de téléchargement automatique
-            if os.environ.get("CI") == "true":
-                logging.info(
-                    "Environnement CI détecté, tentative de téléchargement automatique..."
-                )
-                try:
-                    from sentence_transformers import SentenceTransformer as ST
-
-                    os.makedirs(os.path.dirname(model_path), exist_ok=True)
-                    model = ST(f"sentence-transformers/{model_name}")
-                    model.save(model_path)
-                    logging.info("Modèle téléchargé et enregistré avec succès")
-                    return model
-                except Exception as ci_error:
-                    logging.error(
-                        "Échec du téléchargement automatique: %s", str(ci_error)
-                    )
-
-        raise RuntimeError(
-            f"Impossible de charger le modèle d'embedding '{model_name}' depuis {model_path}"
-        ) from e
-
-
-def load_embedding_model_original(
-    model_name: str = "all-MiniLM-L6-v2",
-) -> SentenceTransformer:
+def load_embedding_model() -> SentenceTransformer:
     """Charge le modèle d'embedding SentenceTransformer."""
-    # Règle: Compatibilité avec les tests
-    # Pour que les tests fonctionnent, on prend en compte à la fois settings.ENV et os.getenv
-
-    # GitHub nous permet pas de charger le model depuis HuggingFace
-    # si on est en mode production, donc on doit le charger depuis le repo local
-    if settings.ENV == "production":
-        # Utiliser le modèle local dans le repository all-MiniLM-L6-v2
-        model_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), f"{model_name}"
-        )
-        logging.info(
-            "Environnement de production : chargement du modèle local '%s' depuis %s",
-            model_name,
-            model_path,
-        )
-        return SentenceTransformer(model_path)
-    else:
-        # Utiliser le modèle de HuggingFace en développement
-        logging.info(
-            "Chargement du modèle d'embedding '%s' depuis HuggingFace...", model_name
-        )
-        return SentenceTransformer(model_name)
+    logging.info(
+        "Chargement du modèle d'embedding '%s' depuis HuggingFace...",
+        settings.MODEL_MINILM_L6,
+    )
+    return SentenceTransformer(settings.MODEL_MINILM_L6)
 
 
 def create_faiss_index(

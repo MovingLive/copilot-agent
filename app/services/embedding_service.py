@@ -7,6 +7,7 @@ import logging
 from typing import Optional
 
 import numpy as np
+from app.core.config import settings
 import torch
 from fastapi import HTTPException
 from sentence_transformers import SentenceTransformer
@@ -16,7 +17,6 @@ from app.services.vector_cache import get_cache_instance
 logger = logging.getLogger(__name__)
 
 # Constantes
-MODEL_NAME = "all-MiniLM-L6-v2"
 EXPECTED_DIMENSION = 384
 HTTP_500_ERROR = "Erreur interne du service d'embeddings"
 
@@ -56,8 +56,8 @@ class EmbeddingService:
         """
         if self._model is None:
             try:
-                logger.info("Chargement du modèle d'embedding '%s'...", MODEL_NAME)
-                self._model = SentenceTransformer(MODEL_NAME)
+                logger.info("Chargement du modèle d'embedding '%s'...", settings.MODEL_MINILM_L6)
+                self._model = SentenceTransformer(settings.MODEL_MINILM_L6)
                 logger.info(
                     "Modèle chargé avec succès, dimension=%d",
                     self._model.get_sentence_embedding_dimension(),
