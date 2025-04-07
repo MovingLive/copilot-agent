@@ -2,24 +2,23 @@
 Tests unitaires pour le script update_faiss.py
 """
 
-import json
 import os
 import unittest.mock as mock
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import faiss
 import numpy as np
 import pytest
 from moto import mock_aws
-import faiss
 
-from scripts.update_faiss import create_faiss_index, main, load_embedding_model
 from app.services.embedding_service import EXPECTED_DIMENSION
-from app.utils.git_utils import clone_or_update_repo
-from app.utils.document_utils import read_relevant_files
-from app.utils.vector_db_utils import process_files_for_faiss
+from scripts.update_faiss import create_faiss_index, load_embedding_model, main
 from tests.conftest import MockSentenceTransformer
+
 
 class MockSettings:
     """Mock des settings pour les tests."""
+
     REPO_DIR = "test_repo"
     SEGMENT_MAX_LENGTH = 1000
     TEMP_FAISS_DIR = "/tmp/test_faiss"
@@ -30,6 +29,7 @@ class MockSettings:
     LOG_LEVEL = "INFO"
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     ENV = "test"  # Ajout de l'attribut ENV manquant
+    MODEL_MINILM_L6 = "all-MiniLM-L6-v2"  # Ajout de l'attribut MODEL_MINILM_L6 manquant
 
 
 @pytest.fixture(autouse=True)
@@ -51,9 +51,10 @@ def mock_env_vars():
             "REPO_DIR": MockSettings.REPO_DIR,
             "S3_BUCKET_NAME": MockSettings.S3_BUCKET_NAME,
         },
-        clear=True
+        clear=True,
     ):
         yield
+
 
 # Les fixtures pour les tests
 @pytest.fixture
@@ -92,7 +93,10 @@ def mock_embeddings():
 @pytest.fixture
 def patch_load_embedding_model(mock_sentence_transformer):
     """Patch la fonction load_embedding_model pour qu'elle retourne notre mock"""
-    with patch('sentence_transformers.SentenceTransformer', return_value=mock_sentence_transformer):
+    with patch(
+        "sentence_transformers.SentenceTransformer",
+        return_value=mock_sentence_transformer,
+    ):
         yield mock_sentence_transformer
 
 
@@ -100,7 +104,9 @@ def patch_load_embedding_model(mock_sentence_transformer):
 def mock_load_embedding_model(monkeypatch):
     """Fixture qui patche load_embedding_model pour les tests spécifiques"""
     mock = MockSentenceTransformer()
-    monkeypatch.setattr('scripts.update_faiss.load_embedding_model', lambda *args, **kwargs: mock)
+    monkeypatch.setattr(
+        "scripts.update_faiss.load_embedding_model", lambda *args, **kwargs: mock
+    )
     return mock
 
 
@@ -117,7 +123,9 @@ def test_create_faiss_index(mock_processed_docs, mock_sentence_transformer):
     Teste la création d'un index FAISS avec les documents traités.
     """
     # Configuration du mock pour qu'il retourne des embeddings de la bonne dimension
-    mock_embeddings = np.zeros((len(mock_processed_docs), EXPECTED_DIMENSION), dtype=np.float32)
+    mock_embeddings = np.zeros(
+        (len(mock_processed_docs), EXPECTED_DIMENSION), dtype=np.float32
+    )
     mock_sentence_transformer.encode.reset_mock()
     mock_sentence_transformer.encode.return_value = mock_embeddings
 
@@ -131,22 +139,30 @@ def test_create_faiss_index(mock_processed_docs, mock_sentence_transformer):
 
     # Vérification de l'appel à encode
     mock_sentence_transformer.encode.assert_called_once_with(
-        [doc["text"] for doc in mock_processed_docs],
-        show_progress_bar=True
+        [doc["text"] for doc in mock_processed_docs], show_progress_bar=True
     )
 
 
 def test_main_workflow(
-    mock_documents, mock_processed_docs, mock_embeddings, mock_env_vars, patch_load_embedding_model,
-    mock_subprocess_run
+    mock_documents,
+    mock_processed_docs,
+    mock_embeddings,
+    mock_env_vars,
+    patch_load_embedding_model,
+    mock_subprocess_run,
 ):
     """
     Teste le flux principal du script.
     """
     with (
-        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch(
+            "scripts.update_faiss.get_repo_urls",
+            return_value=["https://github.com/test/repo.git"],
+        ),
         patch("scripts.update_faiss.read_relevant_files", autospec=True) as mock_read,
-        patch("scripts.update_faiss.process_files_for_faiss", autospec=True) as mock_process,
+        patch(
+            "scripts.update_faiss.process_files_for_faiss", autospec=True
+        ) as mock_process,
         patch("scripts.update_faiss.save_faiss_index", autospec=True) as mock_save,
         patch("scripts.update_faiss.export_data", autospec=True) as mock_export,
         patch("scripts.update_faiss.clone_multiple_repos", autospec=True) as mock_clone,
@@ -163,12 +179,19 @@ def test_main_workflow(
         # Vérifications
         mock_clone.assert_called_once()
         mock_read.assert_called_once_with("test_repo_path")
-        mock_process.assert_called_once_with(mock_documents, MockSettings.SEGMENT_MAX_LENGTH)
-        mock_save.assert_called_once_with(mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR)
+        mock_process.assert_called_once_with(
+            mock_documents, MockSettings.SEGMENT_MAX_LENGTH
+        )
+        mock_save.assert_called_once_with(
+            mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR
+        )
         mock_export.assert_called_once()
 
+
 @mock_aws
-def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model, mock_subprocess_run):
+def test_s3_export(
+    mock_env_vars, mock_embeddings, patch_load_embedding_model, mock_subprocess_run
+):
     """
     Teste l'exportation des données vers S3.
     """
@@ -179,9 +202,14 @@ def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model, m
     s3.create_bucket(Bucket="test-bucket")
 
     with (
-        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch(
+            "scripts.update_faiss.get_repo_urls",
+            return_value=["https://github.com/test/repo.git"],
+        ),
         patch("scripts.update_faiss.read_relevant_files", autospec=True) as mock_read,
-        patch("scripts.update_faiss.process_files_for_faiss", autospec=True) as mock_process,
+        patch(
+            "scripts.update_faiss.process_files_for_faiss", autospec=True
+        ) as mock_process,
         patch("scripts.update_faiss.save_faiss_index", autospec=True) as mock_save,
         patch("scripts.update_faiss.export_data", autospec=True) as mock_export,
         patch("scripts.update_faiss.clone_multiple_repos", autospec=True) as mock_clone,
@@ -196,8 +224,12 @@ def test_s3_export(mock_env_vars, mock_embeddings, patch_load_embedding_model, m
         main()
 
         # Vérifications
-        mock_save.assert_called_once_with(mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR)
-        mock_export.assert_called_once_with(MockSettings.TEMP_FAISS_DIR, MockSettings.S3_BUCKET_PREFIX)
+        mock_save.assert_called_once_with(
+            mock.ANY, mock.ANY, MockSettings.TEMP_FAISS_DIR
+        )
+        mock_export.assert_called_once_with(
+            MockSettings.TEMP_FAISS_DIR, MockSettings.S3_BUCKET_PREFIX
+        )
 
 
 def test_error_handling(mock_env_vars):
@@ -205,8 +237,13 @@ def test_error_handling(mock_env_vars):
     Teste la gestion des erreurs.
     """
     with (
-        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
-        patch("scripts.update_faiss.clone_multiple_repos", return_value=[]) as mock_clone_multiple,
+        patch(
+            "scripts.update_faiss.get_repo_urls",
+            return_value=["https://github.com/test/repo.git"],
+        ),
+        patch(
+            "scripts.update_faiss.clone_multiple_repos", return_value=[]
+        ) as mock_clone_multiple,
         patch("scripts.update_faiss.logging.error") as mock_error,
         pytest.raises(SystemExit),
     ):
@@ -217,14 +254,21 @@ def test_error_handling(mock_env_vars):
         mock_error.assert_called()
 
 
-def test_empty_documents(mock_env_vars, mock_embeddings, patch_load_embedding_model, mock_subprocess_run):
+def test_empty_documents(
+    mock_env_vars, mock_embeddings, patch_load_embedding_model, mock_subprocess_run
+):
     """
     Teste le comportement avec une liste de documents vide.
     """
     with (
-        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch(
+            "scripts.update_faiss.get_repo_urls",
+            return_value=["https://github.com/test/repo.git"],
+        ),
         patch("scripts.update_faiss.read_relevant_files", autospec=True) as mock_read,
-        patch("scripts.update_faiss.process_files_for_faiss", autospec=True) as mock_process,
+        patch(
+            "scripts.update_faiss.process_files_for_faiss", autospec=True
+        ) as mock_process,
         patch("scripts.update_faiss.save_faiss_index", autospec=True) as mock_save,
         patch("scripts.update_faiss.export_data", autospec=True) as mock_export,
         patch("scripts.update_faiss.clone_multiple_repos", autospec=True) as mock_clone,
@@ -243,21 +287,15 @@ def test_empty_documents(mock_env_vars, mock_embeddings, patch_load_embedding_mo
 
 def test_load_embedding_model_mock():
     """
-    Teste que load_embedding_model est bien mocker et ne tente pas de télécharger le modèle.
+    Teste que load_embedding_model appelle correctement SentenceTransformer.
     """
-    # On s'attend à ce que cette fonction ne lève pas d'exception car elle est patchée
-    # par la fixture block_huggingface_requests qui est autouse=True
-    model = load_embedding_model()
+    # Règle: Python Usage
+    with patch("scripts.update_faiss.SentenceTransformer") as mock_transformer:
+        # Vérification que la fonction charge le modèle depuis HuggingFace
+        model = load_embedding_model()
 
-    # Au lieu de vérifier le type exact, on vérifie que c'est bien un objet mock
-    # qui possède les méthodes attendues
-    assert hasattr(model, 'encode')
-    assert hasattr(model, 'get_sentence_embedding_dimension')
-    assert callable(model.encode)
-    # Vérifions que la méthode encode retourne un array de la bonne dimension
-    test_text = "Test sentence"
-    result = model.encode(test_text)
-    assert result.shape[1] == EXPECTED_DIMENSION
+        # Vérifier que SentenceTransformer a été appelé avec le bon argument (settings.MODEL_MINILM_L6)
+        mock_transformer.assert_called_once_with("all-MiniLM-L6-v2")
 
 
 @pytest.mark.parametrize(
@@ -275,9 +313,14 @@ def test_missing_environment_variables(
     """
     with (
         patch.dict(os.environ, env_vars, clear=True),
-        patch("scripts.update_faiss.get_repo_urls", return_value=["https://github.com/test/repo.git"]),
+        patch(
+            "scripts.update_faiss.get_repo_urls",
+            return_value=["https://github.com/test/repo.git"],
+        ),
         patch("scripts.update_faiss.read_relevant_files", autospec=True) as mock_read,
-        patch("scripts.update_faiss.process_files_for_faiss", autospec=True) as mock_process,
+        patch(
+            "scripts.update_faiss.process_files_for_faiss", autospec=True
+        ) as mock_process,
         patch("scripts.update_faiss.save_faiss_index", autospec=True) as mock_save,
         patch("scripts.update_faiss.export_data", autospec=True) as mock_export,
         patch("scripts.update_faiss.clone_multiple_repos", autospec=True) as mock_clone,
@@ -296,7 +339,9 @@ def test_missing_environment_variables(
         mock_export.assert_called_once_with(mock.ANY, mock.ANY)
 
 
-def test_embedding_dimension_consistency(mock_processed_docs, mock_sentence_transformer, mock_env_vars):
+def test_embedding_dimension_consistency(
+    mock_processed_docs, mock_sentence_transformer, mock_env_vars
+):
     """
     Teste la cohérence des dimensions des embeddings générés.
     """
@@ -330,8 +375,12 @@ def test_large_document_batch(mock_sentence_transformer):
 
     # Réinitialiser le mock et configurer le retour
     mock_sentence_transformer.encode.reset_mock()
-    mock_sentence_transformer.encode.side_effect = None  # Supprimer tout side_effect précédent
-    mock_sentence_transformer.encode.return_value = np.zeros((1000, EXPECTED_DIMENSION), dtype=np.float32)
+    mock_sentence_transformer.encode.side_effect = (
+        None  # Supprimer tout side_effect précédent
+    )
+    mock_sentence_transformer.encode.return_value = np.zeros(
+        (1000, EXPECTED_DIMENSION), dtype=np.float32
+    )
 
     # Créer l'index
     index, mapping = create_faiss_index(large_docs, mock_sentence_transformer)
@@ -341,14 +390,18 @@ def test_large_document_batch(mock_sentence_transformer):
     assert len(mapping) == 1000
 
 
-def test_faiss_search_functionality(mock_processed_docs, mock_embeddings, mock_sentence_transformer):
+def test_faiss_search_functionality(
+    mock_processed_docs, mock_embeddings, mock_sentence_transformer
+):
     """
     Teste la fonctionnalité de recherche de l'index FAISS.
     """
     # Réinitialiser et configurer le mock
     mock_sentence_transformer.encode.reset_mock()
     mock_sentence_transformer.encode.side_effect = None
-    mock_sentence_transformer.encode.return_value = np.zeros((len(mock_processed_docs), EXPECTED_DIMENSION), dtype=np.float32)
+    mock_sentence_transformer.encode.return_value = np.zeros(
+        (len(mock_processed_docs), EXPECTED_DIMENSION), dtype=np.float32
+    )
 
     # Créer l'index
     index, mapping = create_faiss_index(mock_processed_docs, mock_sentence_transformer)

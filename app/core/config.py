@@ -18,6 +18,8 @@ class Settings(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+    MODEL_MINILM_L6: str = "all-MiniLM-L6-v2"
     # Configuration de l'application
     APP_TITLE: str = "Copilot API LLM"
     APP_DESCRIPTION: str = "API pour interagir avec GitHub Copilot LLM"
