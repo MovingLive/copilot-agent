@@ -1,5 +1,8 @@
 name: Mise à jour de l'index FAISS
-
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
 on:
   # Exécution manuelle depuis l'interface GitHub
   workflow_dispatch:
