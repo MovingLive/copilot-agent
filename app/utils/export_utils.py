@@ -10,20 +10,12 @@ import shutil
 import boto3
 from dotenv import load_dotenv
 
+from app.core.config import settings
+
 # --- Chargement des variables d'environnement ---
 load_dotenv()
 
-# --- Configuration ---
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "mon-bucket-faiss")
-AWS_REGION = os.getenv("AWS_REGION", "ca-central-1")
-
-# Répertoire de sortie local (utilisé si ENV = "local")
-LOCAL_OUTPUT_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "output",
-)
-
-# --- Logger ---
+# --- Configuration du logger ---
 logger = logging.getLogger("export_utils")
 
 
@@ -34,10 +26,10 @@ def is_local_environment() -> bool:
         bool: True si l'environnement est local, False sinon
     """
     # Si TESTING est vrai, considérer comme non-local pour forcer l'export
-    if os.getenv("TESTING", "false").lower() == "true":
+    if settings.TESTING:
         return False
 
-    return os.getenv("ENV", "local").strip().lower() == "local"
+    return settings.ENV.strip().lower() == "local"
 
 
 def copy_to_local_output(source_dir: str, destination_dir: str = None) -> None:
@@ -49,7 +41,7 @@ def copy_to_local_output(source_dir: str, destination_dir: str = None) -> None:
                                        Si None, utilise LOCAL_OUTPUT_DIR
     """
     if destination_dir is None:
-        destination_dir = LOCAL_OUTPUT_DIR
+        destination_dir = settings.LOCAL_OUTPUT_DIR
 
     if not os.path.exists(destination_dir):
         os.makedirs(destination_dir)
@@ -91,13 +83,13 @@ def upload_directory_to_s3(
         prefix (str): Préfixe pour les fichiers dans le bucket
     """
     if bucket_name is None:
-        bucket_name = S3_BUCKET_NAME
+        bucket_name = settings.S3_BUCKET_NAME
 
     s3_client = boto3.client(
         "s3",
-        region_name=AWS_REGION,
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "testing"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "testing"),
+        region_name=settings.AWS_REGION,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
     )
 
     for root, _, files in os.walk(directory):
@@ -125,7 +117,7 @@ def export_data(source_dir: str, s3_prefix: str = "", bucket_name: str = None) -
     if is_local_environment():
         logger.info(
             "Environnement local détecté. Copie vers le répertoire local %s...",
-            LOCAL_OUTPUT_DIR,
+            settings.LOCAL_OUTPUT_DIR,
         )
         copy_to_local_output(source_dir)
         logger.info("Copie terminée.")

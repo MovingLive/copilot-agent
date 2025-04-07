@@ -10,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 
+from app.core.config import settings
+
 # Errno constant for read-only file system
 EROFS = 30
 
@@ -29,8 +31,8 @@ def clone_or_update_repo(repo_url: str, repo_dir: str) -> str:
         str: Chemin du répertoire contenant le dépôt cloné
     """
     # Vérifier si nous sommes en environnement de test et le type de test
-    is_testing = os.getenv("TESTING", "false").lower() == "true"
-    skip_git_calls = os.getenv("SKIP_GIT_CALLS", "false").lower() == "true"
+    is_testing = settings.TESTING
+    skip_git_calls = settings.SKIP_GIT_CALLS
 
     # Utiliser le répertoire défini ou créer un répertoire temporaire
     repo_dir_path = _get_writable_directory(repo_dir)
@@ -87,7 +89,9 @@ def _handle_parent_directory(parent_dir: str, configured_dir: str) -> str:
                 "Système de fichiers en lecture seule détecté pour %s", parent_dir
             )
         else:
-            logger.warning("Impossible de créer le répertoire parent %s: %s", parent_dir, e)
+            logger.warning(
+                "Impossible de créer le répertoire parent %s: %s", parent_dir, e
+            )
         return _create_temp_directory()
 
 
@@ -225,15 +229,15 @@ def _get_github_auth_url(repo_url: str) -> tuple[str, str | None]:
         Tuple[str, Optional[str]]: URL modifiée et message d'authentification
     """
     # Vérifier si GitHub Actions est utilisé
-    github_token = os.getenv("GITHUB_TOKEN")
+    github_token = settings.GITHUB_TOKEN
     if github_token:
         # Dans GitHub Actions, utiliser le token GITHUB_TOKEN
         auth_message = "Authentification via GITHUB_TOKEN dans GitHub Actions"
         return _add_token_to_url(repo_url, github_token), auth_message
 
     # Vérifier si un GitHub App est configuré
-    github_app_id = os.getenv("GITHUB_APP_ID")
-    github_app_private_key = os.getenv("GITHUB_APP_PRIVATE_KEY")
+    github_app_id = settings.GITHUB_APP_ID
+    github_app_private_key = settings.GITHUB_APP_PRIVATE_KEY
     if github_app_id and github_app_private_key:
         # Utiliser GitHub App pour l'authentification
         try:
