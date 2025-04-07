@@ -46,22 +46,108 @@ logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
 
 def load_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
     """Charge le modèle d'embedding SentenceTransformer."""
+    # Règle: Gestion robuste des erreurs
+
+    # Configuration du cache pour éviter les problèmes de téléchargement
+    cache_folder = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models_cache"
+    )
+    os.makedirs(cache_folder, exist_ok=True)
+
+    # Définir les variables d'environnement pour les caches
+    os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_folder
+    os.environ["TRANSFORMERS_CACHE"] = cache_folder
+    os.environ["HF_HOME"] = cache_folder
+
+    logging.info("Tentative de chargement du modèle d'embedding '%s'...", model_name)
+
+    # Installation des dépendances manquantes si nécessaire
+    try:
+        import importlib.util
+
+        if importlib.util.find_spec("accelerate") is None:
+            logging.info("Installation du package 'accelerate' manquant...")
+            import subprocess
+
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", "accelerate"]
+            )
+            logging.info("Package 'accelerate' installé avec succès")
+    except Exception as e:
+        logging.warning("Impossible d'installer le package 'accelerate': %s", str(e))
+
+    try:
+        # Tentative avec chemin explicite vers Hugging Face
+        try:
+            logging.info(
+                "Tentative de chargement depuis Hugging Face: sentence-transformers/%s",
+                model_name,
+            )
+            model = SentenceTransformer(f"sentence-transformers/{model_name}")
+            return model
+        except Exception as e:
+            logging.warning(
+                "Échec du chargement depuis Hugging Face (chemin complet): %s", str(e)
+            )
+
+            # Tentative avec juste le nom du modèle
+            try:
+                logging.info("Tentative avec le nom du modèle simple: %s", model_name)
+                model = SentenceTransformer(model_name)
+                return model
+            except Exception as e2:
+                logging.warning("Échec du chargement avec nom simple: %s", str(e2))
+
+                # Dernier essai avec téléchargement dans le dossier cache
+                try:
+                    logging.info("Tentative avec dossier cache configuré")
+                    model_path = os.path.join(cache_folder, model_name)
+                    os.makedirs(model_path, exist_ok=True)
+                    model = SentenceTransformer(f"sentence-transformers/{model_name}")
+                    return model
+                except Exception as e3:
+                    logging.error("Échec de tous les essais de chargement")
+                    raise RuntimeError(
+                        f"Impossible de charger le modèle d'embedding '{model_name}'"
+                    ) from e3
+    except Exception as final_e:
+        logging.error("Erreur critique: %s", str(final_e))
+
+        # En production, on doit proposer une solution alternative
+        if settings.ENV == "production":
+            # Notification claire de l'échec
+            logging.critical("ÉCHEC DU CHARGEMENT DU MODÈLE EN PRODUCTION")
+
+        raise RuntimeError(
+            f"Échec critique lors du chargement du modèle '{model_name}'"
+        ) from final_e
+
+
+def load_embedding_model_original(
+    model_name: str = "all-MiniLM-L6-v2",
+) -> SentenceTransformer:
+    """Charge le modèle d'embedding SentenceTransformer."""
     # Règle: Compatibilité avec les tests
     # Pour que les tests fonctionnent, on prend en compte à la fois settings.ENV et os.getenv
 
     # GitHub nous permet pas de charger le model depuis HuggingFace
     # si on est en mode production, donc on doit le charger depuis le repo local
     if settings.ENV == "production":
-        # Utiliser le modèle local dans le repository
+        # Utiliser le modèle local dans le repository all-MiniLM-L6-v2
         model_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            f"models--sentence-transformers--{model_name}"
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), f"{model_name}"
         )
-        logging.info("Environnement de production : chargement du modèle local '%s' depuis %s", model_name, model_path)
+        logging.info(
+            "Environnement de production : chargement du modèle local '%s' depuis %s",
+            model_name,
+            model_path,
+        )
         return SentenceTransformer(model_path)
     else:
         # Utiliser le modèle de HuggingFace en développement
-        logging.info("Chargement du modèle d'embedding '%s' depuis HuggingFace...", model_name)
+        logging.info(
+            "Chargement du modèle d'embedding '%s' depuis HuggingFace...", model_name
+        )
         return SentenceTransformer(model_name)
 
 
