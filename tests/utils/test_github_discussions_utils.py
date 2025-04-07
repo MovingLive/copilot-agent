@@ -72,7 +72,6 @@ class TestRepoInfoExtraction:
         [
             ("https://github.com/owner/repo", ("owner", "repo")),
             ("https://github.com/owner/repo.git", ("owner", "repo")),
-            ("http://github.com/owner/repo", ("owner", "repo")),
             ("github.com/owner/repo", ("owner", "repo")),
             ("https://github.com/owner/repo/", ("owner", "repo")),
             ("invalid-url", None),
@@ -81,7 +80,16 @@ class TestRepoInfoExtraction:
     )
     def test_extract_repo_info(self, repo_url, expected):
         """Vérifier l'extraction des informations du dépôt depuis différentes URL."""
-        assert extract_repo_info(repo_url) == expected
+        result = extract_repo_info(repo_url)
+        assert result == expected
+
+    def test_extract_repo_info_http_error(self):
+        """Vérifier qu'une exception est levée pour les URL utilisant HTTP."""
+        # Règle appliquée: Sécurité - Utilisation exclusive du protocole HTTPS
+        with pytest.raises(
+            ValueError, match="Utilisation du protocole HTTP non sécurisé"
+        ):
+            extract_repo_info("http://github.com/owner/repo")
 
 
 class TestFetchDiscussions:

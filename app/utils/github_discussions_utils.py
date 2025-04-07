@@ -76,14 +76,23 @@ def extract_repo_info(repo_url: str) -> Optional[Tuple[str, str]]:
 
     Returns:
         Tuple[str, str] ou None: Le propriétaire et le nom du dépôt, ou None si l'URL est invalide
+
+    Raises:
+        ValueError: Si l'URL utilise le protocole HTTP non sécurisé
     """
     from urllib.parse import urlparse
 
     # Supprimer l'extension .git si présente
     clean_url = repo_url.replace(".git", "")
 
-    # Ajouter le protocole si manquant
-    if not clean_url.startswith("http://") and not clean_url.startswith("https://"):
+    # Vérifier que l'URL n'utilise pas HTTP non sécurisé
+    if clean_url.startswith("http://"):
+        raise ValueError(
+            "Utilisation du protocole HTTP non sécurisé. Utilisez HTTPS à la place."
+        )
+
+    # Ajouter https:// si absent
+    if not clean_url.startswith("https://"):
         clean_url = "https://" + clean_url
 
     # Analyser l'URL
