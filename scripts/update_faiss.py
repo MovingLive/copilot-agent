@@ -45,82 +45,69 @@ logging.basicConfig(level=settings.LOG_LEVEL, format=settings.LOG_FORMAT)
 
 
 def load_embedding_model(model_name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
-    """Charge le modèle d'embedding SentenceTransformer."""
+    """Charge le modèle d'embedding SentenceTransformer depuis le dossier local."""
     # Règle: Gestion robuste des erreurs
 
-    # Configuration du cache pour éviter les problèmes de téléchargement
-    cache_folder = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models_cache"
+    # Définir explicitement le chemin du modèle local
+    model_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "models",
+        model_name,
     )
-    os.makedirs(cache_folder, exist_ok=True)
 
-    # Définir les variables d'environnement pour les caches
-    os.environ["SENTENCE_TRANSFORMERS_HOME"] = cache_folder
-    os.environ["TRANSFORMERS_CACHE"] = cache_folder
-    os.environ["HF_HOME"] = cache_folder
+    logging.info(
+        "Tentative de chargement du modèle local '%s' depuis %s", model_name, model_path
+    )
 
-    logging.info("Tentative de chargement du modèle d'embedding '%s'...", model_name)
+    # Vérifier si le dossier du modèle existe
+    if not os.path.exists(model_path):
+        logging.error("Le dossier du modèle n'existe pas: %s", model_path)
+        raise FileNotFoundError(
+            f"Le dossier du modèle '{model_name}' est introuvable à {model_path}"
+        )
 
-    # Installation des dépendances manquantes si nécessaire
     try:
-        import importlib.util
-
-        if importlib.util.find_spec("accelerate") is None:
-            logging.info("Installation du package 'accelerate' manquant...")
-            import subprocess
-
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "accelerate"]
-            )
-            logging.info("Package 'accelerate' installé avec succès")
+        model = SentenceTransformer(model_path)
+        logging.info("Modèle '%s' chargé avec succès", model_name)
+        return model
     except Exception as e:
-        logging.warning("Impossible d'installer le package 'accelerate': %s", str(e))
+        logging.error("Erreur lors du chargement du modèle local: %s", str(e))
 
-    try:
-        # Tentative avec chemin explicite vers Hugging Face
-        try:
-            logging.info(
-                "Tentative de chargement depuis Hugging Face: sentence-transformers/%s",
-                model_name,
-            )
-            model = SentenceTransformer(f"sentence-transformers/{model_name}")
-            return model
-        except Exception as e:
-            logging.warning(
-                "Échec du chargement depuis Hugging Face (chemin complet): %s", str(e)
-            )
+        # Instructions pour recréer le modèle
+        logging.warning(
+            "Le modèle local est probablement corrompu. Pour le recréer, exécutez:"
+        )
+        logging.warning("rm -rf %s", model_path)
+        logging.warning(
+            "poetry run python -c \"from sentence_transformers import SentenceTransformer; model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); model.save('%s')\"",
+            model_path,
+        )
 
-            # Tentative avec juste le nom du modèle
-            try:
-                logging.info("Tentative avec le nom du modèle simple: %s", model_name)
-                model = SentenceTransformer(model_name)
-                return model
-            except Exception as e2:
-                logging.warning("Échec du chargement avec nom simple: %s", str(e2))
-
-                # Dernier essai avec téléchargement dans le dossier cache
-                try:
-                    logging.info("Tentative avec dossier cache configuré")
-                    model_path = os.path.join(cache_folder, model_name)
-                    os.makedirs(model_path, exist_ok=True)
-                    model = SentenceTransformer(f"sentence-transformers/{model_name}")
-                    return model
-                except Exception as e3:
-                    logging.error("Échec de tous les essais de chargement")
-                    raise RuntimeError(
-                        f"Impossible de charger le modèle d'embedding '{model_name}'"
-                    ) from e3
-    except Exception as final_e:
-        logging.error("Erreur critique: %s", str(final_e))
-
-        # En production, on doit proposer une solution alternative
+        # Message d'erreur spécifique pour l'environnement de production
         if settings.ENV == "production":
-            # Notification claire de l'échec
             logging.critical("ÉCHEC DU CHARGEMENT DU MODÈLE EN PRODUCTION")
 
+            # Pour les environnements CI/CD, proposer une option de téléchargement automatique
+            if os.environ.get("CI") == "true":
+                logging.info(
+                    "Environnement CI détecté, tentative de téléchargement automatique..."
+                )
+                try:
+                    from sentence_transformers import SentenceTransformer as ST
+
+                    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                    model = ST(f"sentence-transformers/{model_name}")
+                    model.save(model_path)
+                    logging.info("Modèle téléchargé et enregistré avec succès")
+                    return model
+                except Exception as ci_error:
+                    logging.error(
+                        "Échec du téléchargement automatique: %s", str(ci_error)
+                    )
+
         raise RuntimeError(
-            f"Échec critique lors du chargement du modèle '{model_name}'"
-        ) from final_e
+            f"Impossible de charger le modèle d'embedding '{model_name}' depuis {model_path}"
+        ) from e
 
 
 def load_embedding_model_original(
